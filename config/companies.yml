@@ -1,0 +1,126 @@
+companies:
+- name: Flutter Entertainment
+  ticker_us: FLUT
+  country: UK/US
+  category: operator
+  watchers:
+  - type: page
+    url: https://www.flutter.com/investors/regulatory-news
+  - type: page
+    url: https://www.flutter.com/investors/results-reports-and-presentations/year/2025/
+  - type: edgar_atom
+    ticker: FLUT
+- name: Entain plc
+  country: UK
+  category: operator
+  watchers:
+  - type: page
+    url: https://www.entaingroup.com/investor-relations/regulatory-news/
+- name: Evoke plc (ex-888)
+  country: UK
+  category: operator
+  watchers:
+  - type: page
+    url: https://www.evokeplc.com/investors/regulatory-news/
+  - type: page
+    url: https://www.evokeplc.com/investors/results-reports-and-presentations/
+- name: DraftKings
+  ticker_us: DKNG
+  country: US
+  category: operator
+  watchers:
+  - type: rss_page
+    url: https://draftkings.gcs-web.com/shareholder-services/rss-feeds/
+  - type: edgar_atom
+    ticker: DKNG
+- name: MGM Resorts
+  ticker_us: MGM
+  country: US
+  category: operator
+  watchers:
+  - type: rss_page
+    url: https://investors.mgmresorts.com/rss/
+  - type: page
+    url: https://investors.mgmresorts.com/investors/news-releases/default.aspx
+  - type: edgar_atom
+    ticker: MGM
+- name: Caesars Entertainment
+  ticker_us: CZR
+  country: US
+  category: operator
+  watchers:
+  - type: page
+    url: https://investor.caesars.com/press-releases
+  - type: edgar_atom
+    ticker: CZR
+- name: PENN Entertainment
+  ticker_us: PENN
+  country: US
+  category: operator
+  watchers:
+  - type: rss_page
+    url: https://pennnationalgaming.gcs-web.com/rss-feeds
+  - type: edgar_atom
+    ticker: PENN
+- name: Super Group (Betway/Spin)
+  ticker_us: SGHC
+  country: Global/US
+  category: operator
+  watchers:
+  - type: page
+    url: https://investors.supergroup.com/news-and-events/press-releases/default.aspx
+  - type: edgar_atom
+    ticker: SGHC
+- name: Betsson AB
+  country: Sweden
+  category: operator
+  watchers:
+  - type: page
+    url: https://www.betssonab.com/newsroom/press-releases
+- name: Evolution AB
+  country: Sweden
+  category: supplier
+  watchers:
+  - type: page
+    url: https://www.evolution.com/investors/press-releases/
+- name: Light & Wonder (LNW)
+  ticker_us: LNW
+  country: US/Australia
+  category: supplier
+  watchers:
+  - type: page
+    url: https://www.lnw.com/investors
+  - type: edgar_atom
+    ticker: LNW
+- name: Playtech plc
+  country: UK
+  category: supplier
+  watchers:
+  - type: page
+    url: https://www.investors.playtech.com/regulatory-news
+- name: Kambi Group
+  country: Sweden/Malta
+  category: supplier
+  watchers:
+  - type: page
+    url: https://www.kambi.com/investors/press-releases/
+  - type: page
+    url: https://www.kambi.com/investors/financial-reports-and-presentations/
+- name: Sportradar
+  ticker_us: SRAD
+  country: Switzerland/US
+  category: data
+  watchers:
+  - type: rss
+    url: https://rss.globenewswire.com/rssfeed/organization/bUQ4MtcTvBAjR_cda0el8g%3D%3D
+  - type: edgar_atom
+    ticker: SRAD
+- name: Genius Sports
+  ticker_us: GENI
+  country: UK/US
+  category: data
+  watchers:
+  - type: page
+    url: https://investors.geniussports.com/news/default.aspx
+  - type: edgar_atom
+    ticker: GENI
