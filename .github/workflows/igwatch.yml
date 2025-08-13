@@ -48,25 +48,24 @@ jobs:
             echo "POLL_SECONDS_OVERRIDE=60" >> $GITHUB_ENV
           fi
 
-# .github/workflows/igwatch.yml  → in "Create .env for this run"
-- name: Create .env for this run
-  run: |
-    {
-      echo "MAIL_TRANSPORT=smtp"
-      echo "MAIL_FROM=stuatnext@gmail.com"
-      echo "MAIL_TO=stuatnext@gmail.com"
-      echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)"
+      - name: Create .env for this run
+        run: |
+          {
+            echo "MAIL_TRANSPORT=smtp"
+            echo "MAIL_FROM=stuatnext@gmail.com"
+            echo "MAIL_TO=stuatnext@gmail.com"
+            echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)"
 
-      # Gmail SMTP
-      echo "SMTP_HOST=smtp.gmail.com"
-      echo "SMTP_PORT=587"
-      echo "SMTP_USER=stuatnext@gmail.com"
-      echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
+            # Gmail SMTP
+            echo "SMTP_HOST=smtp.gmail.com"
+            echo "SMTP_PORT=587"
+            echo "SMTP_USER=stuatnext@gmail.com"
+            echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
 
-      # Runtime knobs
-      echo "POLL_SECONDS=20"
-      echo "DRY_RUN=false"       # ← change this line
-    } > .env
+            # Runtime knobs
+            echo "POLL_SECONDS=20"
+            echo "DRY_RUN=false"   # will actually send
+          } > .env
 
       - name: Run watcher (bounded)
         run: |
