@@ -51,15 +51,20 @@ jobs:
       - name: Create .env for this run
         run: |
           {
-            echo "GRAPH_TENANT_ID=${{ secrets.GRAPH_TENANT_ID }}"
-            echo "GRAPH_CLIENT_ID=${{ secrets.GRAPH_CLIENT_ID }}"
-            echo "GRAPH_CLIENT_SECRET=${{ secrets.GRAPH_CLIENT_SECRET }}"
+            echo "MAIL_TRANSPORT=${{ vars.MAIL_TRANSPORT }}"
             echo "MAIL_FROM=${{ vars.MAIL_FROM }}"
             echo "MAIL_TO=${{ vars.MAIL_TO }}"
             echo "SEC_USER_AGENT=${{ vars.SEC_USER_AGENT }}"
-            echo "POLL_SECONDS=${POLL_SECONDS_OVERRIDE}"
-            # prefer workflow input, then repo var, fall back to true
-            echo "DRY_RUN=${{ github.event.inputs.dry_run || vars.DRY_RUN || 'true' }}"
+
+            # Gmail SMTP
+            echo "SMTP_HOST=${{ vars.SMTP_HOST }}"
+            echo "SMTP_PORT=${{ vars.SMTP_PORT }}"
+            echo "SMTP_USER=${{ vars.SMTP_USER }}"
+            echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
+
+            # Runtime knobs
+            echo "POLL_SECONDS=${{ vars.POLL_SECONDS_OVERRIDE }}"
+            echo "DRY_RUN=${{ vars.DRY_RUN }}"
           } > .env
 
       - name: Run watcher (bounded)
