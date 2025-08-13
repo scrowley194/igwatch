@@ -1,45 +1,65 @@
 name: igwatch
 
 on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Log instead of sending emails"
+        type: choice
+        options: [ "true", "false" ]
+        default: "true"
   schedule:
-    - cron: "*/5 * * * *"   # every 5 minutes (UTC)
-  workflow_dispatch:        # allow manual runs
+    - cron: "*/5 * * * *"   # every 5 minutes
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 10
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
-      - name: Create venv & install deps
+      - name: Install deps
         run: |
-          python -m venv .venv
-          . .venv/bin/activate
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Write .env from secrets
-        run: |
-          cat > .env <<'EOF'
-          GRAPH_TENANT_ID=${{ secrets.GRAPH_TENANT_ID }}
-          GRAPH_CLIENT_ID=${{ secrets.GRAPH_CLIENT_ID }}
-          GRAPH_CLIENT_SECRET=${{ secrets.GRAPH_CLIENT_SECRET }}
-          MAIL_FROM=${{ secrets.MAIL_FROM }}
-          MAIL_TO=${{ secrets.MAIL_TO }}
-          SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: ${{ secrets.MAIL_FROM }})
-          DRY_RUN=true
-          POLL_SECONDS=60
-          EOF
+      - name: Restore state DB
+        uses: actions/cache@v4
+        with:
+          path: seen.db
+          key: igwatch-seen-db-v1
 
-      - name: Run watcher once (idempotent)
-        env:
-          PYTHONUNBUFFERED: "1"
+      - name: Create .env for this run
         run: |
-          . .venv/bin/activate
-          python -m app.main
+          {
+            echo "GRAPH_TENANT_ID=${{ secrets.GRAPH_TENANT_ID }}"
+            echo "GRAPH_CLIENT_ID=${{ secrets.GRAPH_CLIENT_ID }}"
+            echo "GRAPH_CLIENT_SECRET=${{ secrets.GRAPH_CLIENT_SECRET }}"
+            echo "MAIL_FROM=${{ vars.MAIL_FROM }}"
+            echo "MAIL_TO=${{ vars.MAIL_TO }}"
+            echo "SEC_USER_AGENT=${{ vars.SEC_USER_AGENT }}"
+            echo "POLL_SECONDS=60"
+            # prefer workflow input, then repo var, fall back to true
+            echo "DRY_RUN=${{ github.event.inputs.dry_run || vars.DRY_RUN || 'true' }}"
+          } > .env
+
+      - name: Run watcher briefly (bounded)
+        # Let it run ~50 seconds then exit; avoids a forever job
+        run: |
+          timeout 50s python -m app.main
+
+      - name: Persist logs (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: igwatch-logs
+          path: "**/*.log"
+          if-no-files-found: ignore
