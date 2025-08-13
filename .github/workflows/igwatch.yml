@@ -37,6 +37,17 @@ jobs:
           path: seen.db
           key: igwatch-seen-db-v1
 
+      # Decide timeouts and poll speed per event type
+      - name: Choose runtime params
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "RUN_TIMEOUT=180" >> $GITHUB_ENV          # 3 minutes for manual debug
+            echo "POLL_SECONDS_OVERRIDE=20" >> $GITHUB_ENV # faster first poll
+          else
+            echo "RUN_TIMEOUT=50" >> $GITHUB_ENV           # short for scheduled runs (cost control)
+            echo "POLL_SECONDS_OVERRIDE=60" >> $GITHUB_ENV
+          fi
+
       - name: Create .env for this run
         run: |
           {
@@ -46,15 +57,18 @@ jobs:
             echo "MAIL_FROM=${{ vars.MAIL_FROM }}"
             echo "MAIL_TO=${{ vars.MAIL_TO }}"
             echo "SEC_USER_AGENT=${{ vars.SEC_USER_AGENT }}"
-            echo "POLL_SECONDS=60"
+            echo "POLL_SECONDS=${POLL_SECONDS_OVERRIDE}"
             # prefer workflow input, then repo var, fall back to true
             echo "DRY_RUN=${{ github.event.inputs.dry_run || vars.DRY_RUN || 'true' }}"
           } > .env
 
-      - name: Run watcher briefly (bounded)
-        # Let it run ~50 seconds then exit; avoids a forever job
+      - name: Run watcher (bounded)
         run: |
-          timeout 50s python -m app.main
+          if command -v timeout >/dev/null 2>&1; then
+            timeout ${RUN_TIMEOUT}s python -m app.main
+          else
+            python -m app.main
+          fi
 
       - name: Persist logs (optional)
         if: always()
