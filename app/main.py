@@ -76,7 +76,7 @@ def send_email(subject: str, body: str):
         return
     # Prefer Graph
     try:
-        from .emailers.graph_mailer import send_plaintext as graph_send
+        from app.emailers.smtp_basic import send_plaintext
         graph_send(subject, body, MAIL_TO)
         logger.info("Email sent via Graph to %s", MAIL_TO)
     except Exception as e:
