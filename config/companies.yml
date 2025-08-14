@@ -229,18 +229,14 @@ companies:
           (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
           (site:globenewswire.com OR site:businesswire.com)
 
-  # Sector-wide wires (focused and relatively low-noise)
   - name: Sector news wires
     category: aggregator
     allowed_domains: ["businesswire.com", "globenewswire.com", "prnewswire.com", "newsfilecorp.com", "newsdirect.com"]
     watchers:
-      # Business Wire – gaming/lottery & keywords
       - type: wire
         url: https://www.businesswire.com/newsroom?keywords=igaming%20OR%20%22sports%20betting%22%20OR%20casino
-      # GlobeNewswire – gaming keywords
       - type: wire
         url: https://www.globenewswire.com/en/search/keyword/igaming%20OR%20%22sports%20betting%22%20OR%20casino
-      # Google News restricted to wires, industry-level (acts as a backstop)
       - type: gnews
         query: >
           (igaming OR "online casino" OR "sports betting" OR casino)
@@ -249,11 +245,9 @@ companies:
 
   - name: Sector (Google News wires)
     category: aggregator
-    allowed_domains: [ "businesswire.com", "globenewswire.com", "prnewswire.com" ]
+    allowed_domains: ["businesswire.com", "globenewswire.com", "prnewswire.com"]
     watchers:
       - type: gnews
         query: >
           (earnings OR results OR "Q1" OR "Q2" OR "Q3" OR "Q4" OR "quarterly")
           (casino OR igaming OR "sports betting" OR "online casino")
-
-
