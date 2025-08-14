@@ -106,10 +106,25 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
 
     lines.append(DIV)
 
-    e = result.get("ebitda", {})
-    r = result.get("revenue", {})
-    lines.append(f"EBITDA:  Current {e.get('current')} | Prior {e.get('prior')} | {e.get('yoy')}")
-    lines.append(f"Revenue: Current {r.get('current')} | Prior {r.get('prior')} | {r.get('yoy')}")
+e = result.get("ebitda", {})
+r = result.get("revenue", {})
+
+def _fmt_metric(name, d):
+    cur = (d.get("current") or "").strip()
+    yoy = (d.get("yoy") or "").strip()
+    if cur.lower() in ("", "not found", "n/a"):
+        return None
+    return f"{name}: {cur}" + (f" | YoY {yoy}" if yoy and yoy.lower() != "n/a" else "")
+
+m = []
+x = _fmt_metric("Revenue", r)
+if x: m.append(x)
+x = _fmt_metric("EBITDA", e)
+if x: m.append(x)
+if m:
+    lines.extend(m)
+    lines.append(DIV)
+
 
     lines.append(DIV)
     lines.append("Geography breakdown (YoY):")
