@@ -71,6 +71,12 @@ companies:
     watchers:
       - type: page
         url: https://investor.caesars.com/press-releases
+        allowed_domains: [ "investor.caesars.com", "caesars.com" ]
+        follow_detail: true
+      - type: page
+        url: https://investor.caesars.com/events/
+        allowed_domains: [ "investor.caesars.com", "caesars.com" ]
+        follow_detail: true
       - type: wire
         url: https://www.businesswire.com/portal/site/home/search/?searchType=news&searchTerm=Caesars%20Entertainment
 
@@ -173,6 +179,8 @@ companies:
     watchers:
       - type: page
         url: https://investors.geniussports.com/news/default.aspx
+        allowed_domains: [ "investors.geniussports.com", "geniussports.com", "businesswire.com", "globenewswire.com" ]
+        follow_detail: true
       - type: wire
         url: https://www.globenewswire.com/Search/NewsSearch?keyword=Genius%20Sports
 
