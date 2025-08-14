@@ -31,6 +31,13 @@ def _norm(s: str) -> str:
     """Normalize whitespace and remove excessive newlines."""
     return re.sub(r"[\s\n]+", " ", (s or "").strip())
 
+def is_blocked_domain(url: str) -> bool:
+    """Check if the URL's domain is in the block list."""
+    if not BLOCK_DOMAINS:
+        return False
+    netloc = urlparse(url).netloc.lower()
+    return any(netloc == d or netloc.endswith("." + d) for d in BLOCK_DOMAINS)
+
 # --------------------------------------------------------------------
 # Extraction Logic
 # --------------------------------------------------------------------
@@ -43,36 +50,26 @@ def _extract_numbers(text: str) -> dict:
         "product_breakdown": [],
         "controversial_points": []
     }
-    # Revenue
     if m := re.search(r"(?:revenue|net sales|turnover)[^.\n]*?(" + _MONEY + ")", text, flags=re.I):
         out["revenue"]["current"] = _norm(m.group(1))
     if y := re.search(r"(?:revenue)[^.\n]*?(" + _PCT + r")\s*(?:yoy|year[- ]over[- ]year|vs\.?\s*prior)", text, flags=re.I):
         out["revenue"]["yoy"] = _norm(y.group(1))
-
-    # EBITDA
     if m := re.search(r"(?:adjusted\s*)?ebitda[^.\n]*?(" + _MONEY + ")", text, flags=re.I):
         out["ebitda"]["current"] = _norm(m.group(1))
     if y := re.search(r"ebitda[^.\n]*?(" + _PCT + r")\s*(?:yoy|year[- ]over[- ]year|vs\.?\s*prior)", text, flags=re.I):
         out["ebitda"]["yoy"] = _norm(y.group(1))
-
-    # Geography / Product breakdown (Improved to look for lines with money or percentages)
     for line in text.splitlines():
         line_norm = _norm(line)
-        if len(line_norm) > 250: continue # Skip very long lines
-        
+        if len(line_norm) > 250: continue
         has_metric = re.search(_PCT, line) or re.search(_MONEY, line)
         if not has_metric: continue
-
-        if re.search(r"\b(US|United States|UK|United Kingdom|Europe|Italy|Spain|Germany|Nordics|Canada|Australia|LatAm|APAC|North America)\b", line, re.I):
+        if re.search(r"\b(US|UK|Europe|Canada|Australia|LatAm|North America)\b", line, re.I):
             out["geo_breakdown"].append(line_norm)
-        if re.search(r"\b(OSB|Sportsbook|iCasino|Casino|Retail|B2B|B2C|Gaming|Lottery|Bingo|Poker|Slots|Live Dealer|Media)\b", line, re.I):
+        if re.search(r"\b(OSB|Sportsbook|iCasino|Gaming|Lottery|Media)\b", line, re.I):
             out["product_breakdown"].append(line_norm)
-
-    # Controversies
-    for kw in ["regulatory", "investigation", "fine", "penalty", "data breach", "governance", "restatement"]:
+    for kw in ["regulatory", "investigation", "fine", "penalty", "governance"]:
         if re.search(rf"\b{re.escape(kw)}\b", text, re.I):
             out["controversial_points"].append(f"Mentions: {kw}")
-
     return out
 
 # --------------------------------------------------------------------
@@ -82,36 +79,32 @@ def _summarize_html(url: str, html: str) -> dict:
     soup = BeautifulSoup(html, "lxml")
     title = soup.find("h1") or soup.find("title")
     headline = _norm(title.get_text(" ", strip=True) if title else "")
-
-    # **IMPROVEMENT**: Get a better summary by combining the first few paragraphs.
     summary_paragraphs = soup.select("article p, main p, .content p, #content p")
     summary = " ".join([_norm(p.get_text(" ", strip=True)) for p in summary_paragraphs[:3]])
-
-    # **NEW**: Extract key highlights from bulleted lists.
     highlights = []
     list_items = soup.select("article li, main li, .content li, #content li")
     for item in list_items:
         text = _norm(item.get_text(" ", strip=True))
-        if 15 < len(text) < 300: # Filter for meaningful, concise points
+        if 15 < len(text) < 300:
             highlights.append(text)
-
     text = soup.get_text("\n")
     data = _extract_numbers(text)
-
     return {
         "headline": headline or "Earnings/Results",
         "short_summary": summary or "Press release / results page",
-        "key_highlights": highlights, # Add new highlights to the output
+        "key_highlights": highlights,
+        "final_url": url,
         **data,
         "final_thoughts": "Early read: watch OSB/iCasino trajectory, regulation, and supplier order books; refine after call transcript."
     }
 
-def _summarize_pdf(text: str) -> dict:
+def _summarize_pdf(url: str, text: str) -> dict:
     data = _extract_numbers(text)
     return {
         "headline": "Results presentation / PDF",
         "short_summary": "Key figures extracted from PDF.",
-        "key_highlights": [], # PDFs are harder to parse for highlights
+        "key_highlights": [],
+        "final_url": url,
         **data,
         "final_thoughts": "PDF-only parse; verify against press release for context."
     }
@@ -119,7 +112,7 @@ def _summarize_pdf(text: str) -> dict:
 # --------------------------------------------------------------------
 # Main Entry
 # --------------------------------------------------------------------
-def fetch_and_summarize(url: str, title_hint: str = "") -> dict:
+def fetch_and_summarize(url: str, title_hint: str = "") -> dict | None:
     if not SCRAPING_API_KEY:
         raise ValueError("SCRAPING_API_KEY is not set in the environment.")
 
@@ -134,16 +127,18 @@ def fetch_and_summarize(url: str, title_hint: str = "") -> dict:
     r = SESSION.get(proxy_url, params=params, timeout=90)
     r.raise_for_status()
 
-    final_url = r.url
-    host = _host(final_url)
-
-    if host in BLOCK_DOMAINS:
-        raise RuntimeError(f"Blocked domain: {host}")
+    # **FIX**: The final URL is the one the proxy resolved to.
+    final_url = r.url 
+    
+    # **FIX**: Check if the *final* domain is blocked.
+    if is_blocked_domain(final_url):
+        logger.info("Skipping blocked domain (after redirect): %s", final_url)
+        return None
 
     ctype = r.headers.get("Content-Type", "").lower()
 
     if "application/pdf" in ctype or final_url.lower().endswith(".pdf"):
         text = extract_text(BytesIO(r.content))
-        return _summarize_pdf(text)
+        return _summarize_pdf(final_url, text)
 
     return _summarize_html(final_url, r.text)
