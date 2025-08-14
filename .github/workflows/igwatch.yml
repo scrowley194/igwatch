@@ -6,7 +6,7 @@ on:
       dry_run:
         description: "Log instead of sending emails"
         type: choice
-        options: [ "true", "false" ]
+        options: ["true", "false"]
         default: "true"
   schedule:
     - cron: "*/5 * * * *"   # every 5 minutes
@@ -31,40 +31,41 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # Persist dedupe DB at data/seen.db
       - name: Restore state DB
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: seen.db
-          key: igwatch-seen-db-v1
+          path: data/seen.db
+          key: igwatch-seen-db-${{ runner.os }}-v2-${{ github.run_id }}
+          restore-keys: |
+            igwatch-seen-db-${{ runner.os }}-v2-
 
-      # Decide timeouts and poll speed per event type
       - name: Choose runtime params
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "RUN_TIMEOUT=180" >> $GITHUB_ENV          # 3 minutes for manual debug
-            echo "POLL_SECONDS_OVERRIDE=20" >> $GITHUB_ENV # faster first poll
+            echo "RUN_TIMEOUT=180" >> $GITHUB_ENV
+            echo "POLL_SECONDS=20" >> $GITHUB_ENV
+            echo "DRY_RUN=${{ inputs.dry_run }}" >> $GITHUB_ENV
           else
-            echo "RUN_TIMEOUT=50" >> $GITHUB_ENV           # short for scheduled runs (cost control)
-            echo "POLL_SECONDS_OVERRIDE=60" >> $GITHUB_ENV
+            echo "RUN_TIMEOUT=75" >> $GITHUB_ENV
+            echo "POLL_SECONDS=60" >> $GITHUB_ENV
+            echo "DRY_RUN=false" >> $GITHUB_ENV
           fi
 
-      - name: Create .env for this run
+      - name: Create .env for this run (Gmail)
         run: |
           {
-            echo "MAIL_TRANSPORT=smtp"
-            echo "MAIL_FROM=stuatnext@gmail.com"
-            echo "MAIL_TO=stuatnext@gmail.com"
-            echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)"
-
-            # Gmail SMTP
+            echo "POLL_SECONDS=${POLL_SECONDS}"
+            echo "DRY_RUN=${DRY_RUN}"
+            echo "START_FROM_DAYS=45"
+            echo "STRICT_EARNINGS_KEYWORDS=true"
             echo "SMTP_HOST=smtp.gmail.com"
             echo "SMTP_PORT=587"
-            echo "SMTP_USER=stuatnext@gmail.com"
-            echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
-
-            # Runtime knobs
-            echo "POLL_SECONDS=20"
-            echo "DRY_RUN=false"   # will actually send
+            echo "SMTP_USER=${{ secrets.SMTP_USER }}"       # e.g., newsletter@next.io
+            echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"# 16-char App Password
+            echo "MAIL_FROM=${{ secrets.SMTP_USER }}"        # keep From aligned to avoid DMARC issues
+            echo "MAIL_TO=stuart@next.io"
+            echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: devops@next.io)"
           } > .env
 
       - name: Run watcher (bounded)
@@ -75,10 +76,16 @@ jobs:
             python -m app.main
           fi
 
-      - name: Persist logs (optional)
+      - name: Save state DB
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/seen.db
+          key: igwatch-seen-db-${{ runner.os }}-v2-${{ github.run_id }}
+
+      - name: Upload logs & state (optional)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: igwatch-logs
-          path: "**/*.log"
-          if-no-files-found: ignore
+          path: data/seen.db
