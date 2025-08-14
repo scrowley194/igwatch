@@ -247,12 +247,13 @@ companies:
           (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance OR "trading update")
           (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com OR site:newsfilecorp.com OR site:newsdirect.com)
 
-    - name: Sector (Google News wires)
-      category: aggregator
-      allowed_domains: [ "businesswire.com", "globenewswire.com", "prnewswire.com" ]
-      watchers:
+  - name: Sector (Google News wires)
+    category: aggregator
+    allowed_domains: [ "businesswire.com", "globenewswire.com", "prnewswire.com" ]
+    watchers:
       - type: gnews
         query: >
           (earnings OR results OR "Q1" OR "Q2" OR "Q3" OR "Q4" OR "quarterly")
           (casino OR igaming OR "sports betting" OR "online casino")
+
 
