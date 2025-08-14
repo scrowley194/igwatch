@@ -23,7 +23,7 @@ from .config import (
     STRICT_EARNINGS_KEYWORDS,
     ENABLE_EDGAR,
     REQUIRE_NUMBERS,
-    GOOD_WIRE_DOMAINS  # now available for tightening source control
+    GOOD_WIRE_DOMAINS,
 )
 
 # --------------------------------------------------------------------
@@ -57,14 +57,15 @@ def build_watcher(wcfg: dict):
     if wtype == "rss_page":
         return RSSPageWatcher(wcfg["url"])
     if wtype == "page":
+        # NOTE: no follow_detail arg here (your PageWatcher doesn't accept it)
         return PageWatcher(
             wcfg["url"],
             allowed_domains=wcfg.get("allowed_domains"),
-            follow_detail=wcfg.get("follow_detail", False)
         )
     if wtype == "edgar_atom":
         if not ENABLE_EDGAR:
-            raise ValueError("EDGAR disabled by config")
+            # Return None so we can skip cleanly during list build
+            return None
         return EdgarWatcher(wcfg["ticker"])
     if wtype == "wire":
         return PressWireWatcher(wcfg["url"])
@@ -81,7 +82,6 @@ def is_results_like(title: str) -> bool:
     return any(k in (title or "").lower() for k in RESULT_KEYWORDS)
 
 def year_guard(title: str, url: str) -> bool:
-    # Skip stale items with years 2+ behind current
     years = [int(y) for y in re.findall(r"(19|20)\d{2}", f"{title} {url}") if len(y) >= 4]
     return bool(years) and max(years) <= datetime.now().year - 2
 
@@ -97,7 +97,7 @@ def domain_allowed(url: str, allowed: set[str]) -> bool:
     return any(netloc == d or netloc.endswith("." + d) for d in allowed)
 
 def in_good_sources(url: str) -> bool:
-    """Check if URL is from a trusted wire or IR site (optional hard filter)."""
+    """If GOOD_WIRE_DOMAINS is set, restrict to those hosts (e.g., BusinessWire/GlobeNewswire)."""
     if not GOOD_WIRE_DOMAINS:
         return True
     netloc = urlparse(url).netloc.lower()
@@ -111,10 +111,10 @@ def render_email(company: str, src_url: str, result: dict) -> str:
         f"Company: {company}",
         f"Source: {src_url}",
         DIV,
-        f"Headline: {result['headline']}",
+        f"Headline: {result.get('headline','')}",
         DIV,
         "Summary:",
-        result["short_summary"],
+        result.get("short_summary",""),
         DIV,
         "Top 5 controversial points:"
     ]
@@ -158,7 +158,17 @@ def send_email(subject: str, body: str):
 # --------------------------------------------------------------------
 def main_loop():
     companies = load_companies()
-    watchers = [(c, build_watcher(w)) for c in companies for w in c.get("watchers", [])]
+
+    # Build watchers list safely (skip None/errored)
+    watchers: list[tuple[dict, object]] = []
+    for c in companies:
+        for w in c.get("watchers", []):
+            try:
+                obj = build_watcher(w)
+                if obj is not None:
+                    watchers.append((c, obj))
+            except Exception as e:
+                logger.error("Watcher build failed for %s: %s", c.get("name","?"), e)
 
     logger.info(
         "Loaded %d watchers across %d companies. Poll=%ss DRY_RUN=%s START_FROM_DAYS=%s STRICT=%s",
@@ -167,7 +177,8 @@ def main_loop():
 
     while True:
         for c, watcher in watchers:
-            cname, allowed_domains = c["name"], set(map(str.lower, c.get("allowed_domains", [])))
+            cname = c["name"]
+            allowed_domains = set(map(str.lower, c.get("allowed_domains", [])))
             try:
                 for item in watcher.poll():
                     if not domain_allowed(item.url, allowed_domains):
@@ -190,11 +201,13 @@ def main_loop():
                         if REQUIRE_NUMBERS and not _has_numbers(result):
                             logger.info("Skipping (no numbers): %s", item.url)
                             continue
-                        send_email(f"[{cname}] {result['headline'][:120]}", render_email(cname, item.url, result))
+                        subject = f"[{cname}] {result.get('headline','')[:120]}"
+                        body = render_email(cname, item.url, result)
+                        send_email(subject, body)
                         state.mark_seen(item_id, utc_ts())
                         time.sleep(0.5)
                     except Exception as e:
-                        logger.error("Parse/send error: %s", e)
+                        logger.error("Parse/send error for %s: %s", item.url, e)
             except Exception as e:
                 logger.error("Watcher error for %s: %s", cname, e)
 
