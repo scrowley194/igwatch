@@ -57,7 +57,7 @@ class PressWireWatcher(Watcher):
             yield FoundItem(self.listing_url, title, url, now_ts)
 
 # ---------------------------
-# Google News RSS watcher (Rewritten for reliability)
+# Google News RSS watcher (Rewritten for reliability in GitHub Actions)
 # ---------------------------
 class GoogleNewsWatcher(Watcher):
     """
@@ -79,7 +79,8 @@ class GoogleNewsWatcher(Watcher):
         
         try:
             if SCRAPING_API_KEY:
-                # **FIX**: Use the proxy with JS rendering enabled to fetch the main feed.
+                # **FIX**: Use the proxy with JS rendering enabled and a longer timeout.
+                # This is necessary to solve Google's anti-bot challenges in the GitHub environment.
                 proxy_url = "http://api.scraperapi.com"
                 params = {
                     "api_key": SCRAPING_API_KEY, 
@@ -102,7 +103,7 @@ class GoogleNewsWatcher(Watcher):
         
         for e in feed.entries[:30]:
             title = (e.get("title") or "").strip()
-            # **FIX**: Yield the original Google News link. The redirect will be handled
+            # Yield the original Google News link. The redirect will be handled
             # by the fetch_and_summarize function, which also uses the proxy.
             link = (e.get("link") or "").strip()
             if not title or not link:
