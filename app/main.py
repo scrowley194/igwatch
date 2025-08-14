@@ -52,16 +52,26 @@ def load_companies() -> list[dict]:
 
 def build_watcher(wcfg: dict):
     t = wcfg.get("type")
-    if t == "rss":        return RSSWatcher(wcfg["url"])
-    if t == "rss_page":   return RSSPageWatcher(wcfg["url"])
-    if t == "page":       return PageWatcher(wcfg["url"])
+    if t == "rss":
+        return RSSWatcher(wcfg["url"], allowed_domains=wcfg.get("allowed_domains"))
+    if t == "rss_page":
+        return RSSPageWatcher(wcfg["url"])
+    if t == "page":
+        # NEW: pass optional per-watcher allowlist and follow_detail flag
+        return PageWatcher(
+            wcfg["url"],
+            allowed_domains=wcfg.get("allowed_domains"),
+            follow_detail=wcfg.get("follow_detail", False),
+        )
     if t == "edgar_atom":
         if not ENABLE_EDGAR:
             raise ValueError("EDGAR disabled by config")
         return EdgarWatcher(wcfg["ticker"])
-    if t == "wire":       return PressWireWatcher(wcfg["url"])
-    if t == "gnews":      return GoogleNewsWatcher(wcfg["query"])
+    if t == "wire":
+        # keep if you use PressWireWatcher
+        return PressWireWatcher(wcfg["url"])
     raise ValueError(f"Unknown watcher type: {t}")
+
 
 def is_recent(published_ts: int | None) -> bool:
     if not published_ts:
