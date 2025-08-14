@@ -57,12 +57,12 @@ class PressWireWatcher(Watcher):
             yield FoundItem(self.listing_url, title, url, now_ts)
 
 # ---------------------------
-# Google News RSS watcher (Rewritten to use the proxy for the main feed and for resolving redirects)
+# Google News RSS watcher (Rewritten for reliability)
 # ---------------------------
 class GoogleNewsWatcher(Watcher):
     """
-    Uses Google News RSS and resolves the redirect to the final publisher URL
-    using a proxy to avoid being blocked.
+    Uses Google News RSS. Fetches the feed via a proxy with JS rendering enabled
+    to bypass blocking, then yields the direct Google News links for processing.
     """
     name = "gnews"
 
@@ -75,14 +75,19 @@ class GoogleNewsWatcher(Watcher):
 
     def poll(self) -> Iterable[FoundItem]:
         feed_url = self._feed_url()
-        
-        # **FIX**: Fetch the main RSS feed through the proxy to avoid being blocked by Google.
         feed_content = ""
+        
         try:
             if SCRAPING_API_KEY:
+                # **FIX**: Use the proxy with JS rendering enabled to fetch the main feed.
                 proxy_url = "http://api.scraperapi.com"
-                params = {"api_key": SCRAPING_API_KEY, "url": feed_url, "country_code": "us"}
-                r = SESSION.get(proxy_url, params=params, timeout=60)
+                params = {
+                    "api_key": SCRAPING_API_KEY, 
+                    "url": feed_url, 
+                    "country_code": "us",
+                    "render": "true" # Enable JavaScript rendering
+                }
+                r = SESSION.get(proxy_url, params=params, timeout=90) # Increased timeout for JS rendering
                 r.raise_for_status()
                 feed_content = r.text
             else: # Fallback for local testing
@@ -97,25 +102,11 @@ class GoogleNewsWatcher(Watcher):
         
         for e in feed.entries[:30]:
             title = (e.get("title") or "").strip()
+            # **FIX**: Yield the original Google News link. The redirect will be handled
+            # by the fetch_and_summarize function, which also uses the proxy.
             link = (e.get("link") or "").strip()
             if not title or not link:
                 continue
-
-            # Resolve Google News redirect to the real article URL using the proxy
-            final_url = link
-            try:
-                if "news.google.com" in link and SCRAPING_API_KEY:
-                    proxy_url = "http://api.scraperapi.com"
-                    params = {"api_key": SCRAPING_API_KEY, "url": link, "country_code": "us"}
-                    # Use a HEAD request for efficiency, we only need the final URL
-                    r = SESSION.head(proxy_url, params=params, timeout=20, allow_redirects=True)
-                    # ScraperAPI doesn't follow redirects on HEAD, so we parse its response URL
-                    final_url = r.url
-                elif "news.google.com" in link: # Fallback for local testing without proxy
-                    r = SESSION.get(link, timeout=(5, 15), allow_redirects=True)
-                    final_url = r.url
-            except Exception:
-                pass
 
             ts = None
             pub = e.get("published")
@@ -125,4 +116,4 @@ class GoogleNewsWatcher(Watcher):
                 except Exception:
                     ts = None
 
-            yield FoundItem(feed_url, title, final_url, ts)
+            yield FoundItem(feed_url, title, link, ts)
