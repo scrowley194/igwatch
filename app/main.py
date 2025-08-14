@@ -12,7 +12,6 @@ from .utils.state import State
 from .parsers.extract import fetch_and_summarize
 from .emailers import smtp_oauth
 from .config import (
-    POLL_SECONDS,
     DRY_RUN,
     MAIL_FROM,
     MAIL_TO,
@@ -69,7 +68,6 @@ def construct_queries() -> list[str]:
 
 def is_recent(published_ts: int | None) -> bool:
     if not published_ts:
-        # If no date is found, process it to be safe. The year_guard will catch old articles.
         return True
     return published_ts >= (utc_ts() - START_FROM_DAYS * 86400)
 
@@ -79,21 +77,13 @@ def is_results_like(title: str) -> bool:
     return any(k in (title or "").lower() for k in FINANCIAL_NEWS_KEYWORDS)
 
 def year_guard(title: str, url: str) -> bool:
-    # This guard prevents processing very old articles that might appear in searches.
     years = [int(y) for y in re.findall(r"(20\d{2})", f"{title} {url}")]
-    # Allow current year and previous year.
     return bool(years) and max(years) < datetime.now().year - 1
 
 def _has_numbers(result: dict) -> bool:
     def ok(d):
         return isinstance(d, dict) and bool(d.get("current")) and d["current"].lower() not in ("not found", "n/a")
     return ok(result.get("revenue")) or ok(result.get("ebitda"))
-
-def is_blocked_domain(url: str) -> bool:
-    if not BLOCK_DOMAINS:
-        return False
-    netloc = urlparse(url).netloc.lower()
-    return any(netloc == d or netloc.endswith("." + d) for d in BLOCK_DOMAINS)
 
 # --------------------------------------------------------------------
 # Email rendering & Sending
@@ -146,8 +136,8 @@ def process_item(item) -> bool:
     Processes a single found item. Returns True if an email was sent, False otherwise.
     """
     try:
-        if is_blocked_domain(item.url) or \
-           year_guard(item.title, item.url) or \
+        # **FIX**: The is_blocked_domain check is now handled inside fetch_and_summarize.
+        if year_guard(item.title, item.url) or \
            not is_recent(item.published_ts) or \
            not is_results_like(item.title):
             return False
@@ -160,15 +150,19 @@ def process_item(item) -> bool:
         email_company_name = company_match.group(1).strip() if company_match else "Unknown Company"
 
         result = fetch_and_summarize(item.url, title_hint=item.title)
+        # If fetch_and_summarize returns None, it means the domain was blocked.
+        if result is None:
+            return False
+            
         if REQUIRE_NUMBERS and not _has_numbers(result):
             logger.info("Skipping (no numbers): %s", item.url)
             return False
         
         subject = f"[{email_company_name}] {result.get('headline','')[:120]}"
-        body = render_email(email_company_name, item.url, result)
+        body = render_email(email_company_name, result.get("final_url", item.url), result)
         send_email(subject, body)
         state.mark_seen(item_id, utc_ts())
-        time.sleep(1) # Be respectful to the API
+        time.sleep(1)
         return True
     except Exception as e:
         logger.error("Parse/send error for %s: %s", item.url, e)
@@ -183,7 +177,7 @@ def main_loop():
     queries = construct_queries()
     watchers = [GoogleNewsWatcher(query) for query in queries]
     
-    all_items = {} # Use a dict to de-duplicate items by URL
+    all_items = {}
     for watcher in watchers:
         try:
             for item in watcher.poll():
