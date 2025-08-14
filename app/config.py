@@ -30,6 +30,9 @@ FIRST_PARTY_ONLY = _bool("FIRST_PARTY_ONLY", "true")
 REQUIRE_NUMBERS = _bool("REQUIRE_NUMBERS", "true")
 ENABLE_EDGAR = _bool("ENABLE_EDGAR", "false")  # default OFF
 
+# NEW: API Key for the web scraping proxy service
+SCRAPING_API_KEY = os.getenv("SCRAPING_API_KEY")
+
 # Browser-like UA for IR sites that block generic clients
 BROWSER_UA = os.getenv(
     "BROWSER_UA",
