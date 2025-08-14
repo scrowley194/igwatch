@@ -28,8 +28,11 @@ from .config import (
 )
 
 # --- Run Mode Configuration ---
-HISTORICAL_RUN = True
-START_FROM_DAYS = 90
+# Set to True to perform a single deep search and then exit (ideal for daily scheduled runs).
+# Set to False to run in a continuous polling loop.
+SINGLE_RUN = True
+# How many days back to look for articles in a single run.
+START_FROM_DAYS = 2
 
 # --------------------------------------------------------------------
 # Setup
@@ -110,7 +113,6 @@ def render_email(company: str, src_url: str, result: dict) -> str:
         "Summary:", result.get("short_summary",""), DIV,
     ]
     
-    # **NEW**: Add the Key Highlights section to the email.
     highlights = result.get("key_highlights") or []
     if highlights:
         lines.append("Key Highlights:")
@@ -152,17 +154,20 @@ def send_email(subject: str, body: str):
 # --------------------------------------------------------------------
 # Main loop Functions
 # --------------------------------------------------------------------
-def process_item(item):
+def process_item(item) -> bool:
+    """
+    Processes a single found item. Returns True if an email was sent, False otherwise.
+    """
     try:
         if is_blocked_domain(item.url) or \
            year_guard(item.title, item.url) or \
            not is_recent(item.published_ts) or \
            not is_results_like(item.title):
-            return
+            return False
 
         item_id = state.make_id(item.source, item.url, item.title)
         if state.is_seen(item_id):
-            return
+            return False
 
         company_match = re.match(r"^([\w\s.&,()]+?)(?:\s\(|reports|announces)", item.title, re.IGNORECASE)
         email_company_name = company_match.group(1).strip() if company_match else "Unknown Company"
@@ -170,32 +175,52 @@ def process_item(item):
         result = fetch_and_summarize(item.url, title_hint=item.title)
         if REQUIRE_NUMBERS and not _has_numbers(result):
             logger.info("Skipping (no numbers): %s", item.url)
-            return
+            return False
         
         subject = f"[{email_company_name}] {result.get('headline','')[:120]}"
         body = render_email(email_company_name, item.url, result)
         send_email(subject, body)
         state.mark_seen(item_id, utc_ts())
         time.sleep(0.5)
+        return True
     except Exception as e:
         logger.error("Parse/send error for %s: %s", item.url, e)
+        return False
 
-def run_historical_mode():
-    logger.info("--- RUNNING IN HISTORICAL DISCOVERY MODE (90 days) ---")
+def run_single_scan():
+    """
+    Runs a single discovery scan, processes new items, and sends a summary email if no new items are found.
+    This is the ideal mode for daily scheduled runs.
+    """
+    logger.info("--- RUNNING SINGLE DISCOVERY SCAN (%s days) ---", START_FROM_DAYS)
     discovery_query = construct_discovery_query()
     watcher = build_watcher({"type": "gnews", "query": discovery_query})
     
+    processed_count = 0
     try:
         found_items = list(watcher.poll())
-        logger.info("Historical query found %d potential articles. Processing...", len(found_items))
+        logger.info("Discovery query found %d potential articles. Processing...", len(found_items))
         for item in found_items:
-            process_item(item)
+            if process_item(item):
+                processed_count += 1
+        
+        # **NEW**: Send a notification if no new reports were processed.
+        if processed_count == 0:
+            logger.info("No new reports found to process.")
+            send_email(
+                "iGaming Watcher: No New Reports Found",
+                f"The daily scan completed at {datetime.now(timezone.utc).isoformat()} but did not find any new financial reports to process."
+            )
+
     except Exception as e:
-        logger.error("Historical discovery watcher failed: %s", e)
+        logger.error("Discovery watcher failed: %s", e)
     finally:
-        logger.info("--- HISTORICAL MODE FINISHED ---")
+        logger.info("--- SINGLE SCAN FINISHED ---")
 
 def run_continuous_mode():
+    """
+    Runs in a continuous loop, polling for new articles indefinitely.
+    """
     discovery_query = construct_discovery_query()
     watcher = build_watcher({"type": "gnews", "query": discovery_query})
     
@@ -213,8 +238,8 @@ def run_continuous_mode():
         time.sleep(POLL_SECONDS)
 
 if __name__ == "__main__":
-    if HISTORICAL_RUN:
-        run_historical_mode()
+    if SINGLE_RUN:
+        run_single_scan()
     else:
         try:
             run_continuous_mode()
