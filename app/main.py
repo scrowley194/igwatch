@@ -57,13 +57,6 @@ FINANCIAL_NEWS_KEYWORDS = [
     "full year", "half year", "interim report"
 ]
 
-# Press wire domains to search. These are the most common sources for official financial news.
-PRESS_WIRE_SITES = [
-    "businesswire.com",
-    "globenewswire.com",
-    "prnewswire.com",
-]
-
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
@@ -76,8 +69,9 @@ def construct_discovery_query() -> str:
     """
     sector_query_part = " OR ".join([f'"{kw}"' for kw in SECTOR_KEYWORDS])
     financial_query_part = " OR ".join([f'"{kw}"' for kw in FINANCIAL_NEWS_KEYWORDS])
-    site_query_part = " OR ".join([f'site:{site}' for site in PRESS_WIRE_SITES])
-    return f"({sector_query_part}) AND ({financial_query_part}) AND ({site_query_part})"
+    
+    # This query now searches the entire web, not just specific press wire sites.
+    return f"({sector_query_part}) AND ({financial_query_part})"
 
 def build_watcher(wcfg: dict):
     wtype = wcfg.get("type")
@@ -201,7 +195,7 @@ def run_test_mode():
 def run_discovery_mode():
     """Runs the continuous polling loop to discover new articles."""
     discovery_query = construct_discovery_query()
-    logger.info("Constructed dynamic discovery query.")
+    logger.info("Constructed dynamic discovery query for wide search.")
 
     virtual_watcher_config = {
         "company_name": "Sector Discovery",
@@ -221,6 +215,7 @@ def run_discovery_mode():
         
         try:
             for item in watcher.poll():
+                # The in_good_sources check is now less critical but can act as a quality filter
                 if not domain_allowed(item.url, allowed_domains) or not in_good_sources(item.url) or \
                    year_guard(item.title, item.url) or not is_recent(item.published_ts) or \
                    not is_results_like(item.title):
