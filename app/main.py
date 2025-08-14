@@ -29,7 +29,7 @@ from .config import (
 # --- Test Mode Configuration ---
 # Set to True to run a one-off test with a real URL.
 # Set to False for normal, continuous operation.
-TEST_MODE = True
+TEST_MODE = False
 # This is a real URL to a Q2 2025 earnings report for testing the full pipeline.
 TEST_URL = "https://www.businesswire.com/news/home/20250806801950/en/Light-Wonder-Inc.-Reports-Second-Quarter-2025-Results"
 
