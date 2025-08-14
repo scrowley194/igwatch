@@ -24,14 +24,15 @@ from .config import (
     ENABLE_EDGAR,
     REQUIRE_NUMBERS,
     GOOD_WIRE_DOMAINS,
+    BLOCK_DOMAINS, # Import the block list
 )
 
 # --- Test Mode Configuration ---
 # Set to True to run a one-off test with a real URL.
 # Set to False for normal, continuous operation.
 TEST_MODE = False
-# This is a real URL to a Q2 2025 earnings report for testing the full pipeline.
-TEST_URL = "https://www.businesswire.com/news/home/20250806801950/en/Light-Wonder-Inc.-Reports-Second-Quarter-2025-Results"
+# This is a real URL for testing the full pipeline.
+TEST_URL = "https://www.globenewswire.com/news-release/2025/05/08/2877564/0/en/Genius-Sports-Announces-First-Quarter-2025-Financial-Results.html"
 
 
 # --------------------------------------------------------------------
@@ -70,7 +71,7 @@ def construct_discovery_query() -> str:
     sector_query_part = " OR ".join([f'"{kw}"' for kw in SECTOR_KEYWORDS])
     financial_query_part = " OR ".join([f'"{kw}"' for kw in FINANCIAL_NEWS_KEYWORDS])
     
-    # This query now searches the entire web, not just specific press wire sites.
+    # This query searches the entire web.
     return f"({sector_query_part}) AND ({financial_query_part})"
 
 def build_watcher(wcfg: dict):
@@ -110,17 +111,12 @@ def _has_numbers(result: dict) -> bool:
         return isinstance(d, dict) and bool(d.get("current")) and d["current"].lower() not in ("not found", "n/a")
     return ok(result.get("revenue")) or ok(result.get("ebitda"))
 
-def domain_allowed(url: str, allowed: set[str]) -> bool:
-    if not allowed:
-        return True
+def is_blocked_domain(url: str) -> bool:
+    """Check if the URL's domain is in the block list."""
+    if not BLOCK_DOMAINS:
+        return False
     netloc = urlparse(url).netloc.lower()
-    return any(netloc == d or netloc.endswith("." + d) for d in allowed)
-
-def in_good_sources(url: str) -> bool:
-    if not GOOD_WIRE_DOMAINS:
-        return True
-    netloc = urlparse(url).netloc.lower()
-    return any(netloc == d or netloc.endswith("." + d) for d in GOOD_WIRE_DOMAINS)
+    return any(netloc == d or netloc.endswith("." + d) for d in BLOCK_DOMAINS)
 
 # --------------------------------------------------------------------
 # Email rendering & Sending (Your original code, unchanged)
@@ -172,8 +168,7 @@ def run_test_mode():
     logger.info("Processing URL: %s", TEST_URL)
     
     try:
-        # A simple regex to extract the company name from the headline for the email subject
-        title_hint = "Light & Wonder Inc. Reports Second Quarter 2025 Results"
+        title_hint = "Genius Sports Announces First Quarter 2025 Financial Results"
         company_match = re.match(r"^([\w\s.&,()]+?)(?:\s\(|reports|announces)", title_hint, re.IGNORECASE)
         email_company_name = company_match.group(1).strip() if company_match else "Unknown Company"
 
@@ -198,8 +193,6 @@ def run_discovery_mode():
     logger.info("Constructed dynamic discovery query for wide search.")
 
     virtual_watcher_config = {
-        "company_name": "Sector Discovery",
-        "allowed_domains": set(GOOD_WIRE_DOMAINS),
         "watcher_obj": build_watcher({"type": "gnews", "query": discovery_query})
     }
     
@@ -209,15 +202,14 @@ def run_discovery_mode():
     )
 
     while True:
-        cname = virtual_watcher_config["company_name"]
         watcher = virtual_watcher_config["watcher_obj"]
-        allowed_domains = virtual_watcher_config["allowed_domains"]
         
         try:
             for item in watcher.poll():
-                # The in_good_sources check is now less critical but can act as a quality filter
-                if not domain_allowed(item.url, allowed_domains) or not in_good_sources(item.url) or \
-                   year_guard(item.title, item.url) or not is_recent(item.published_ts) or \
+                # **FIXED LOGIC**: Now we only filter out blocked domains.
+                if is_blocked_domain(item.url) or \
+                   year_guard(item.title, item.url) or \
+                   not is_recent(item.published_ts) or \
                    not is_results_like(item.title):
                     continue
 
@@ -242,7 +234,7 @@ def run_discovery_mode():
                 except Exception as e:
                     logger.error("Parse/send error for %s: %s", item.url, e)
         except Exception as e:
-            logger.error("Watcher error for %s: %s", cname, e)
+            logger.error("Watcher error for Sector Discovery: %s", e)
 
         time.sleep(POLL_SECONDS)
 
