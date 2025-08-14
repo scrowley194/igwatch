@@ -65,7 +65,7 @@ jobs:
             echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"# 16-char App Password
             echo "MAIL_FROM=${{ secrets.SMTP_USER }}"        # keep From aligned to avoid DMARC issues
             echo "MAIL_TO=stuart@next.io"
-            echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: devops@next.io)"
+            echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)"
           } > .env
 
       - name: Run watcher (bounded)
