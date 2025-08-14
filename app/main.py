@@ -66,18 +66,13 @@ def construct_discovery_query() -> str:
     """
     sector_query_part = " OR ".join([f'"{kw}"' for kw in SECTOR_KEYWORDS])
     financial_query_part = " OR ".join([f'"{kw}"' for kw in FINANCIAL_NEWS_KEYWORDS])
-
-    # **FIX**: Prioritize primary sources by adding the GOOD_WIRE_DOMAINS to the query.
-    # This tells Google to search for the keywords primarily within these trusted sites.
     primary_source_sites = " OR ".join([f'site:{site}' for site in GOOD_WIRE_DOMAINS])
-
     return f"({sector_query_part}) AND ({financial_query_part}) AND ({primary_source_sites})"
 
 def build_watcher(wcfg: dict):
     wtype = wcfg.get("type")
     if wtype == "gnews":
         return GoogleNewsWatcher(wcfg["query"])
-    # Other watcher types can be added back here if needed
     raise ValueError(f"Unknown watcher type: {wtype}")
 
 def is_recent(published_ts: int | None) -> bool:
@@ -113,18 +108,29 @@ def render_email(company: str, src_url: str, result: dict) -> str:
         f"Company: {company}", f"Source: {src_url}", DIV,
         f"Headline: {result.get('headline','')}", DIV,
         "Summary:", result.get("short_summary",""), DIV,
-        "Top 5 controversial points:"
     ]
+    
+    # **NEW**: Add the Key Highlights section to the email.
+    highlights = result.get("key_highlights") or []
+    if highlights:
+        lines.append("Key Highlights:")
+        lines.extend([f"- {h}" for h in highlights])
+        lines.append(DIV)
+
+    lines.append("Top 5 controversial points:")
     cps = result.get("controversial_points") or []
     lines.extend([f"- {c}" for c in cps[:5]] if cps else ["- None detected."])
+    
     e, r = result.get("ebitda", {}), result.get("revenue", {})
     def fmt_metric(name: str, d: dict) -> str | None:
         cur, yoy = (d.get("current") or "").strip(), (d.get("yoy") or "").strip()
         if cur.lower() in ("", "not found", "n/a"): return None
         return f"{name}: {cur}" + (f" | YoY {yoy}" if yoy and yoy.lower() != "n/a" else "")
+    
     metrics = [m for m in (fmt_metric("Revenue", r), fmt_metric("EBITDA", e)) if m]
     if metrics:
         lines.extend(metrics + [DIV])
+
     lines.append("Geography breakdown (YoY):")
     lines.extend([f"- {g}" for g in result.get("geo_breakdown", [])] or ["- None"])
     lines.append(DIV)
