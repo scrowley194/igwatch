@@ -224,3 +224,21 @@ if __name__ == "__main__":
         main_loop()
     except KeyboardInterrupt:
         logger.info("Stopped.")
+
+from urllib.parse import urlparse
+
+# ...inside main_loop(), when iterating each company:
+for c in companies:
+    allowed = set([d.lower() for d in c.get("allowed_domains", [])])
+    for w in c.get("watchers", []):
+        try:
+            watcher = build_watcher(w)
+            for item in watcher.poll():
+                # --- domain filter ---
+                if allowed:
+                    netloc = urlparse(item.url).netloc.lower()
+                    # allow subdomains like investors.mgmresorts.com to match mgmresorts.com if you wish:
+                    if not any(netloc == d or netloc.endswith("." + d) for d in allowed):
+                        continue
+                # ...keep your existing year/recency/keyword checks here...
+
