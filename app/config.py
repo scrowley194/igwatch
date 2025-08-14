@@ -24,3 +24,29 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")  # Gmail App Password
 
 # User agent for SEC/EDGAR API requests
 SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)")
+
+# config.py (additions)
+FIRST_PARTY_ONLY = _bool("FIRST_PARTY_ONLY", "true")
+REQUIRE_NUMBERS = _bool("REQUIRE_NUMBERS", "true")
+ENABLE_EDGAR = _bool("ENABLE_EDGAR", "false")  # default OFF
+
+# Browser-like UA for IR sites that block generic clients
+BROWSER_UA = os.getenv(
+    "BROWSER_UA",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+# Minimal allow/block lists (comma-separated envs can override)
+GOOD_WIRE_DOMAINS = set([d.strip().lower() for d in os.getenv(
+    "GOOD_WIRE_DOMAINS",
+    "businesswire.com,globenewswire.com,prnewswire.com,newsfilecorp.com,newsdirect.com"
+).split(",") if d.strip()])
+
+BLOCK_DOMAINS = set([d.strip().lower() for d in os.getenv(
+    "BLOCK_DOMAINS",
+    "news.google.com,seekingalpha.com,marketwatch.com,msn.com,finance.yahoo.com,"
+    "yahoo.com,bloomberg.com,thestreet.com,benzinga.com,investopedia.com,"
+    "sportsgrid.com,ainvest.com"
+).split(",") if d.strip()])
+
