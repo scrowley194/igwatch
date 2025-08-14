@@ -159,7 +159,7 @@ def process_item(item) -> bool:
     Processes a single found item. Returns True if an email was sent, False otherwise.
     """
     try:
-        # **FIX**: The primary filter is now the block list. We accept any other source.
+        # The primary filter is now the block list. We accept any other source.
         if is_blocked_domain(item.url) or \
            year_guard(item.title, item.url) or \
            not is_recent(item.published_ts) or \
@@ -199,7 +199,7 @@ def run_single_scan():
     
     processed_count = 0
     try:
-        # **FIX**: Process up to 50 articles to get a wider range of results.
+        # Process up to 50 articles to get a wider range of results.
         found_items = list(watcher.poll())[:50]
         logger.info("Discovery query found %d potential articles. Processing...", len(found_items))
         for item in found_items:
