@@ -26,6 +26,14 @@ from .config import (
     GOOD_WIRE_DOMAINS,
 )
 
+# --- Test Mode Configuration ---
+# Set to True to run a one-off test with a real URL.
+# Set to False for normal, continuous operation.
+TEST_MODE = True
+# This is a real URL to a Q2 2025 earnings report for testing the full pipeline.
+TEST_URL = "https://www.businesswire.com/news/home/20250806801950/en/Light-Wonder-Inc.-Reports-Second-Quarter-2025-Results"
+
+
 # --------------------------------------------------------------------
 # Setup & Dynamic Discovery Configuration
 # --------------------------------------------------------------------
@@ -69,8 +77,6 @@ def construct_discovery_query() -> str:
     sector_query_part = " OR ".join([f'"{kw}"' for kw in SECTOR_KEYWORDS])
     financial_query_part = " OR ".join([f'"{kw}"' for kw in FINANCIAL_NEWS_KEYWORDS])
     site_query_part = " OR ".join([f'site:{site}' for site in PRESS_WIRE_SITES])
-    # The final query looks for documents on specific sites that contain at least one
-    # sector keyword and at least one financial news keyword.
     return f"({sector_query_part}) AND ({financial_query_part}) AND ({site_query_part})"
 
 def build_watcher(wcfg: dict):
@@ -97,10 +103,8 @@ def is_recent(published_ts: int | None) -> bool:
     return published_ts >= (utc_ts() - START_FROM_DAYS * 86400)
 
 def is_results_like(title: str) -> bool:
-    # This function is kept from your original code
     if not STRICT_EARNINGS_KEYWORDS:
         return True
-    # Your original RESULT_KEYWORDS are now part of FINANCIAL_NEWS_KEYWORDS
     return any(k in (title or "").lower() for k in FINANCIAL_NEWS_KEYWORDS)
 
 def year_guard(title: str, url: str) -> bool:
@@ -166,18 +170,42 @@ def send_email(subject: str, body: str):
         logger.error("SMTP send failed: %s", e)
 
 # --------------------------------------------------------------------
-# Main loop (Rewritten to use discovery mode)
+# Main loop (Rewritten to support Test Mode and Discovery Mode)
 # --------------------------------------------------------------------
-def main_loop():
-    # 1. Construct the dynamic search query
+def run_test_mode():
+    """Executes a single run with a predefined URL to test the full pipeline."""
+    logger.info("--- RUNNING IN TARGETED TEST MODE ---")
+    logger.info("Processing URL: %s", TEST_URL)
+    
+    try:
+        # A simple regex to extract the company name from the headline for the email subject
+        title_hint = "Light & Wonder Inc. Reports Second Quarter 2025 Results"
+        company_match = re.match(r"^([\w\s.&,()]+?)(?:\s\(|reports|announces)", title_hint, re.IGNORECASE)
+        email_company_name = company_match.group(1).strip() if company_match else "Unknown Company"
+
+        result = fetch_and_summarize(TEST_URL, title_hint=title_hint)
+        
+        if REQUIRE_NUMBERS and not _has_numbers(result):
+            logger.info("Test item skipped (no numbers found).")
+            return
+
+        subject = f"[TEST] [{email_company_name}] {result.get('headline','')[:120]}"
+        body = render_email(email_company_name, TEST_URL, result)
+        send_email(subject, body)
+        
+    except Exception as e:
+        logger.error("Targeted test failed: %s", e, exc_info=True)
+    finally:
+        logger.info("--- TEST MODE FINISHED ---")
+
+def run_discovery_mode():
+    """Runs the continuous polling loop to discover new articles."""
     discovery_query = construct_discovery_query()
     logger.info("Constructed dynamic discovery query.")
 
-    # 2. Create a single "virtual" watcher configuration for our discovery search
-    # This uses your existing GoogleNewsWatcher. The company name is generic.
     virtual_watcher_config = {
         "company_name": "Sector Discovery",
-        "allowed_domains": set(GOOD_WIRE_DOMAINS), # Use domains from your config
+        "allowed_domains": set(GOOD_WIRE_DOMAINS),
         "watcher_obj": build_watcher({"type": "gnews", "query": discovery_query})
     }
     
@@ -193,16 +221,9 @@ def main_loop():
         
         try:
             for item in watcher.poll():
-                # All your original filtering logic remains the same
-                if not domain_allowed(item.url, allowed_domains):
-                    continue
-                if not in_good_sources(item.url):
-                    continue
-                if year_guard(item.title, item.url):
-                    continue
-                if not is_recent(item.published_ts):
-                    continue
-                if not is_results_like(item.title):
+                if not domain_allowed(item.url, allowed_domains) or not in_good_sources(item.url) or \
+                   year_guard(item.title, item.url) or not is_recent(item.published_ts) or \
+                   not is_results_like(item.title):
                     continue
 
                 item_id = state.make_id(item.source, item.url, item.title)
@@ -210,8 +231,6 @@ def main_loop():
                     continue
 
                 try:
-                    # The company name for the email is now extracted from the article title
-                    # This is a simple regex, can be improved if needed
                     company_match = re.match(r"^([\w\s.&,()]+?)(?:\s\(|reports|announces)", item.title, re.IGNORECASE)
                     email_company_name = company_match.group(1).strip() if company_match else "Unknown Company"
 
@@ -233,7 +252,10 @@ def main_loop():
         time.sleep(POLL_SECONDS)
 
 if __name__ == "__main__":
-    try:
-        main_loop()
-    except KeyboardInterrupt:
-        logger.info("Stopped.")
+    if TEST_MODE:
+        run_test_mode()
+    else:
+        try:
+            run_discovery_mode()
+        except KeyboardInterrupt:
+            logger.info("Stopped.")
