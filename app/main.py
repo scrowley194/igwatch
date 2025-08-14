@@ -11,7 +11,9 @@ from .utils.state import State
 from .watchers.rss_watcher import RSSWatcher, RSSPageWatcher
 from .watchers.page_watcher import PageWatcher
 from .watchers.edgar_watcher import EdgarWatcher
+from .watchers.press_wires import PressWireWatcher
 from .parsers.extract import fetch_and_summarize
+from .emailers import smtp_oauth
 from .config import (
     POLL_SECONDS,
     DRY_RUN,
@@ -20,10 +22,9 @@ from .config import (
     START_FROM_DAYS,
     STRICT_EARNINGS_KEYWORDS,
     ENABLE_EDGAR,
-    REQUIRE_NUMBERS
+    REQUIRE_NUMBERS,
+    GOOD_WIRE_DOMAINS  # now available for tightening source control
 )
-from .emailers import smtp_oauth
-from .watchers.press_wires import PressWireWatcher, GoogleNewsWatcher
 
 # --------------------------------------------------------------------
 # Setup
@@ -40,65 +41,67 @@ RESULT_KEYWORDS = [
 DIV = "-" * 72
 
 # --------------------------------------------------------------------
-# Helper functions
+# Helpers
 # --------------------------------------------------------------------
 def utc_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
 def load_companies() -> list[dict]:
     with open("config/companies.yml", "r") as f:
-        data = yaml.safe_load(f)
-    return data.get("companies", [])
+        return yaml.safe_load(f).get("companies", [])
 
 def build_watcher(wcfg: dict):
-    t = wcfg.get("type")
-    if t == "rss":
+    wtype = wcfg.get("type")
+    if wtype == "rss":
         return RSSWatcher(wcfg["url"], allowed_domains=wcfg.get("allowed_domains"))
-    if t == "rss_page":
+    if wtype == "rss_page":
         return RSSPageWatcher(wcfg["url"])
-    if t == "page":
-        # NEW: pass optional per-watcher allowlist and follow_detail flag
+    if wtype == "page":
         return PageWatcher(
             wcfg["url"],
             allowed_domains=wcfg.get("allowed_domains"),
-            follow_detail=wcfg.get("follow_detail", False),
+            follow_detail=wcfg.get("follow_detail", False)
         )
-    if t == "edgar_atom":
+    if wtype == "edgar_atom":
         if not ENABLE_EDGAR:
             raise ValueError("EDGAR disabled by config")
         return EdgarWatcher(wcfg["ticker"])
-    if t == "wire":
-        # keep if you use PressWireWatcher
+    if wtype == "wire":
         return PressWireWatcher(wcfg["url"])
-    raise ValueError(f"Unknown watcher type: {t}")
-
+    raise ValueError(f"Unknown watcher type: {wtype}")
 
 def is_recent(published_ts: int | None) -> bool:
     if not published_ts:
         return True
-    cutoff = utc_ts() - START_FROM_DAYS * 86400
-    return published_ts >= cutoff
+    return published_ts >= (utc_ts() - START_FROM_DAYS * 86400)
 
-def is_results_like(title: str, url: str) -> bool:
-    t = (title or "").lower()
+def is_results_like(title: str) -> bool:
     if not STRICT_EARNINGS_KEYWORDS:
         return True
-    return any(k in t for k in RESULT_KEYWORDS)
+    return any(k in (title or "").lower() for k in RESULT_KEYWORDS)
 
 def year_guard(title: str, url: str) -> bool:
+    # Skip stale items with years 2+ behind current
     years = [int(y) for y in re.findall(r"(19|20)\d{2}", f"{title} {url}") if len(y) >= 4]
-    if not years:
-        return False
-    latest = max(years)
-    cur = datetime.now().year
-    return latest <= cur - 2
+    return bool(years) and max(years) <= datetime.now().year - 2
 
 def _has_numbers(result: dict) -> bool:
-    def _ok(d): 
-        if not isinstance(d, dict): return False
-        v = (d.get("current") or "").strip().lower()
-        return bool(v) and v not in ("not found","n/a")
-    return _ok(result.get("revenue")) or _ok(result.get("ebitda"))
+    def ok(d):
+        return isinstance(d, dict) and bool(d.get("current")) and d["current"].lower() not in ("not found", "n/a")
+    return ok(result.get("revenue")) or ok(result.get("ebitda"))
+
+def domain_allowed(url: str, allowed: set[str]) -> bool:
+    if not allowed:
+        return True
+    netloc = urlparse(url).netloc.lower()
+    return any(netloc == d or netloc.endswith("." + d) for d in allowed)
+
+def in_good_sources(url: str) -> bool:
+    """Check if URL is from a trusted wire or IR site (optional hard filter)."""
+    if not GOOD_WIRE_DOMAINS:
+        return True
+    netloc = urlparse(url).netloc.lower()
+    return any(netloc == d or netloc.endswith("." + d) for d in GOOD_WIRE_DOMAINS)
 
 # --------------------------------------------------------------------
 # Email rendering
@@ -115,52 +118,26 @@ def render_email(company: str, src_url: str, result: dict) -> str:
         DIV,
         "Top 5 controversial points:"
     ]
-
     cps = result.get("controversial_points") or []
-    if not cps:
-        lines.append("- None detected.")
-    else:
-        for c in cps[:5]:
-            lines.append(f"- {c}")
+    lines.extend([f"- {c}" for c in cps[:5]] if cps else ["- None detected."])
 
-    lines.append(DIV)
-
-    # EBITDA / Revenue formatting
-    e = result.get("ebitda", {})
-    r = result.get("revenue", {})
-
-    def _fmt_metric(name: str, d: dict) -> str | None:
-        cur = (d.get("current") or "").strip()
-        yoy = (d.get("yoy") or "").strip()
+    e, r = result.get("ebitda", {}), result.get("revenue", {})
+    def fmt_metric(name: str, d: dict) -> str | None:
+        cur, yoy = (d.get("current") or "").strip(), (d.get("yoy") or "").strip()
         if cur.lower() in ("", "not found", "n/a"):
             return None
         return f"{name}: {cur}" + (f" | YoY {yoy}" if yoy and yoy.lower() != "n/a" else "")
 
-    m = []
-    x = _fmt_metric("Revenue", r)
-    if x: m.append(x)
-    x = _fmt_metric("EBITDA", e)
-    if x: m.append(x)
-    if m:
-        lines.extend(m)
-        lines.append(DIV)
+    metrics = [m for m in (fmt_metric("Revenue", r), fmt_metric("EBITDA", e)) if m]
+    if metrics:
+        lines.extend(metrics + [DIV])
 
     lines.append("Geography breakdown (YoY):")
-    for g in result.get("geo_breakdown", []):
-        lines.append(f"- {g}")
-
+    lines.extend([f"- {g}" for g in result.get("geo_breakdown", [])] or ["- None"])
     lines.append(DIV)
     lines.append("Product breakdown (YoY):")
-    for p in result.get("product_breakdown", []):
-        lines.append(f"- {p}")
-
-    lines.append(DIV)
-    lines.append("Final thoughts:")
-    lines.append(result.get("final_thoughts", ""))
-
-    lines.append(DIV)
-    lines.append("— NEXT.io iGaming Earnings Watcher")
-
+    lines.extend([f"- {p}" for p in result.get("product_breakdown", [])] or ["- None"])
+    lines.extend([DIV, "Final thoughts:", result.get("final_thoughts", ""), DIV, "— NEXT.io iGaming Earnings Watcher"])
     return "\n".join(lines)
 
 # --------------------------------------------------------------------
@@ -172,7 +149,7 @@ def send_email(subject: str, body: str):
         return
     try:
         smtp_oauth.send_plaintext(subject, body, MAIL_TO)
-        logger.info("Email sent successfully from %s to %s", MAIL_FROM, MAIL_TO)
+        logger.info("Email sent successfully: %s", subject)
     except Exception as e:
         logger.error("SMTP send failed: %s", e)
 
@@ -181,14 +158,7 @@ def send_email(subject: str, body: str):
 # --------------------------------------------------------------------
 def main_loop():
     companies = load_companies()
-    watchers = []
-
-    for c in companies:
-        for w in c.get("watchers", []):
-            try:
-                watchers.append((c, build_watcher(w)))  # store company dict for domain filtering
-            except Exception as e:
-                logger.error("Watcher build failed for %s: %s", c["name"], e)
+    watchers = [(c, build_watcher(w)) for c in companies for w in c.get("watchers", [])]
 
     logger.info(
         "Loaded %d watchers across %d companies. Poll=%ss DRY_RUN=%s START_FROM_DAYS=%s STRICT=%s",
@@ -197,22 +167,18 @@ def main_loop():
 
     while True:
         for c, watcher in watchers:
-            cname = c["name"]
-            allowed = set([d.lower() for d in c.get("allowed_domains", [])])
-
+            cname, allowed_domains = c["name"], set(map(str.lower, c.get("allowed_domains", [])))
             try:
                 for item in watcher.poll():
-                    # domain filter
-                    if allowed:
-                        netloc = urlparse(item.url).netloc.lower()
-                        if not any(netloc == d or netloc.endswith("." + d) for d in allowed):
-                            continue
-
+                    if not domain_allowed(item.url, allowed_domains):
+                        continue
+                    if not in_good_sources(item.url):
+                        continue
                     if year_guard(item.title, item.url):
                         continue
                     if not is_recent(item.published_ts):
                         continue
-                    if not is_results_like(item.title, item.url):
+                    if not is_results_like(item.title):
                         continue
 
                     item_id = state.make_id(item.source, item.url, item.title)
@@ -222,18 +188,13 @@ def main_loop():
                     try:
                         result = fetch_and_summarize(item.url, title_hint=item.title)
                         if REQUIRE_NUMBERS and not _has_numbers(result):
-                            logger.info("Skip email (no numbers found) for %s", item.url)
+                            logger.info("Skipping (no numbers): %s", item.url)
                             continue
-
-                        subject = f"[{cname}] {result['headline'][:120]}"
-                        body = render_email(cname, item.url, result)
-                        send_email(subject, body)
+                        send_email(f"[{cname}] {result['headline'][:120]}", render_email(cname, item.url, result))
                         state.mark_seen(item_id, utc_ts())
                         time.sleep(0.5)
-
                     except Exception as e:
-                        logger.error("Parse/send error for %s: %s", item.url, e)
-
+                        logger.error("Parse/send error: %s", e)
             except Exception as e:
                 logger.error("Watcher error for %s: %s", cname, e)
 
