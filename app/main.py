@@ -21,6 +21,7 @@ from .config import (
     STRICT_EARNINGS_KEYWORDS
 )
 from .emailers import smtp_oauth
+from .config import ENABLE_EDGAR
 
 # --------------------------------------------------------------------
 # Setup
@@ -54,7 +55,11 @@ def build_watcher(wcfg: Dict):
     if t == "rss":        return RSSWatcher(wcfg["url"])
     if t == "rss_page":   return RSSPageWatcher(wcfg["url"])
     if t == "page":       return PageWatcher(wcfg["url"])
-    if t == "edgar_atom": return EdgarWatcher(wcfg["ticker"])
+    if t == "edgar_atom":
+        if not ENABLE_EDGAR:
+            raise ValueError("EDGAR disabled by config")
+        from .watchers.edgar_watcher import EdgarWatcher
+        return EdgarWatcher(wcfg["ticker"])
     if t == "wire":       return PressWireWatcher(wcfg["url"])
     if t == "gnews":      return GoogleNewsWatcher(wcfg["query"])
     raise ValueError(f"Unknown watcher type: {t}")
