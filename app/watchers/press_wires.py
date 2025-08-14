@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from .base import Watcher, FoundItem
 from ..net import make_session
+from ..config import SCRAPING_API_KEY # Import the API key
 
 SESSION = make_session()
 
@@ -32,7 +33,6 @@ class PressWireWatcher(Watcher):
         res.raise_for_status()
         soup = BeautifulSoup(res.text, "lxml")
 
-        # Prefer anchors that clearly look like article links for the big wires:
         anchors = (
             soup.select('a[href*="businesswire.com/news/"]')
             or soup.select('a[href*="globenewswire.com/news-release/"]')
@@ -57,12 +57,12 @@ class PressWireWatcher(Watcher):
             yield FoundItem(self.listing_url, title, url, now_ts)
 
 # ---------------------------
-# Google News RSS watcher
+# Google News RSS watcher (Rewritten to use the proxy for resolving redirects)
 # ---------------------------
 class GoogleNewsWatcher(Watcher):
     """
-    Uses Google News RSS and resolves the redirect to the final publisher URL.
-    Your main() domain filters will keep only wire/IR sources.
+    Uses Google News RSS and resolves the redirect to the final publisher URL
+    using a proxy to avoid being blocked.
     """
     name = "gnews"
 
@@ -82,13 +82,33 @@ class GoogleNewsWatcher(Watcher):
             if not title or not link:
                 continue
 
-            # Resolve Google News redirect to the real article URL
+            # Resolve Google News redirect to the real article URL using the proxy
             final_url = link
             try:
-                r = SESSION.get(link, timeout=(5, 15), allow_redirects=True)
-                if r.url:
-                    final_url = r.url
+                if "news.google.com" in link and SCRAPING_API_KEY:
+                    proxy_url = "http://api.scraperapi.com"
+                    params = {
+                        "api_key": SCRAPING_API_KEY,
+                        "url": link,
+                        "country_code": "us"
+                    }
+                    # Use a HEAD request for efficiency, we only need the final URL
+                    r = SESSION.head(proxy_url, params=params, timeout=20, allow_redirects=True)
+                    if r.url:
+                        # The proxy will return a URL with its own domain, parse the actual URL from it
+                        parsed_proxy_url = urlparse(r.url)
+                        if 'url=' in parsed_proxy_url.query:
+                           final_url = parsed_proxy_url.query.split('url=')[-1]
+                        else: # Fallback if the structure changes
+                           final_url = r.url
+
+                elif "news.google.com" in link: # Fallback for local testing without proxy
+                    r = SESSION.get(link, timeout=(5, 15), allow_redirects=True)
+                    if r.url:
+                        final_url = r.url
             except Exception:
+                # If resolution fails, we'll just yield the original google link,
+                # which will likely be skipped later, but it prevents a crash.
                 pass
 
             ts = None
