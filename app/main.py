@@ -3,7 +3,6 @@ import time
 import yaml
 import re
 import logging
-from typing import List, Dict
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -46,12 +45,12 @@ DIV = "-" * 72
 def utc_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
-def load_companies() -> List[Dict]:
+def load_companies() -> list[dict]:
     with open("config/companies.yml", "r") as f:
         data = yaml.safe_load(f)
     return data.get("companies", [])
 
-def build_watcher(wcfg: Dict):
+def build_watcher(wcfg: dict):
     t = wcfg.get("type")
     if t == "rss":        return RSSWatcher(wcfg["url"])
     if t == "rss_page":   return RSSPageWatcher(wcfg["url"])
@@ -84,7 +83,7 @@ def year_guard(title: str, url: str) -> bool:
     cur = datetime.now().year
     return latest <= cur - 2
 
-def _has_numbers(result: Dict) -> bool:
+def _has_numbers(result: dict) -> bool:
     def _ok(d): 
         if not isinstance(d, dict): return False
         v = (d.get("current") or "").strip().lower()
@@ -94,7 +93,7 @@ def _has_numbers(result: Dict) -> bool:
 # --------------------------------------------------------------------
 # Email rendering
 # --------------------------------------------------------------------
-def render_email(company: str, src_url: str, result: Dict) -> str:
+def render_email(company: str, src_url: str, result: dict) -> str:
     lines = [
         f"Company: {company}",
         f"Source: {src_url}",
