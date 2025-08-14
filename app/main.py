@@ -14,6 +14,7 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
         "Top 5 controversial points:"
     ]
 
+    # Controversial points
     cps = result.get("controversial_points") or []
     if not cps:
         lines.append("- None detected.")
@@ -23,11 +24,11 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
 
     lines.append(DIV)
 
-    # --- New EBITDA/Revenue formatting ---
+    # --- EBITDA / Revenue formatting ---
     e = result.get("ebitda", {})
     r = result.get("revenue", {})
 
-    def _fmt_metric(name, d):
+    def _fmt_metric(name: str, d: dict) -> str | None:
         cur = (d.get("current") or "").strip()
         yoy = (d.get("yoy") or "").strip()
         if cur.lower() in ("", "not found", "n/a"):
@@ -43,16 +44,21 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
         lines.extend(m)
         lines.append(DIV)
 
+    # Geo breakdown
     lines.append("Geography breakdown (YoY):")
     for g in result.get("geo_breakdown", []):
         lines.append(f"- {g}")
 
     lines.append(DIV)
+
+    # Product breakdown
     lines.append("Product breakdown (YoY):")
     for p in result.get("product_breakdown", []):
         lines.append(f"- {p}")
 
     lines.append(DIV)
+
+    # Final thoughts
     lines.append("Final thoughts:")
     lines.append(result.get("final_thoughts", ""))
 
@@ -61,16 +67,19 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
 
     return "\n".join(lines)
 
+
 # --------------------------------------------------------------------
 # Main loop
 # --------------------------------------------------------------------
 def main_loop():
     companies = load_companies()
     watchers = []
+
+    # Build watcher list with company dict
     for c in companies:
         for w in c.get("watchers", []):
             try:
-                watchers.append((c, build_watcher(w)))  # store whole company dict
+                watchers.append((c, build_watcher(w)))
             except Exception as e:
                 logger.error("Watcher build failed for %s: %s", c["name"], e)
 
@@ -83,6 +92,7 @@ def main_loop():
         for c, watcher in watchers:
             cname = c["name"]
             allowed = set([d.lower() for d in c.get("allowed_domains", [])])
+
             try:
                 for item in watcher.poll():
                     # --- domain filter ---
@@ -104,6 +114,7 @@ def main_loop():
 
                     try:
                         result = fetch_and_summarize(item.url, title_hint=item.title)
+
                         if REQUIRE_NUMBERS and not _has_numbers(result):
                             logger.info("Skip email (no numbers found) for %s", item.url)
                             continue
@@ -113,8 +124,11 @@ def main_loop():
                         send_email(subject, body)
                         state.mark_seen(item_id, utc_ts())
                         time.sleep(0.5)
+
                     except Exception as e:
                         logger.error("Parse/send error for %s: %s", item.url, e)
+
             except Exception as e:
                 logger.error("Watcher error for %s: %s", cname, e)
+
         time.sleep(POLL_SECONDS)
