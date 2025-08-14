@@ -1,6 +1,99 @@
-from urllib.parse import urlparse
+import os
+import time
+import yaml
+import re
+import logging
 from typing import List, Dict
+from datetime import datetime, timezone
+from urllib.parse import urlparse
 
+from .utils.log import get_logger
+from .utils.state import State
+from .watchers.rss_watcher import RSSWatcher, RSSPageWatcher
+from .watchers.page_watcher import PageWatcher
+from .watchers.edgar_watcher import EdgarWatcher
+from .parsers.extract import fetch_and_summarize
+from .config import (
+    POLL_SECONDS,
+    DRY_RUN,
+    MAIL_FROM,
+    MAIL_TO,
+    START_FROM_DAYS,
+    STRICT_EARNINGS_KEYWORDS,
+    ENABLE_EDGAR,
+    REQUIRE_NUMBERS
+)
+from .emailers import smtp_oauth
+from .watchers.press_wires import PressWireWatcher, GoogleNewsWatcher
+
+# --------------------------------------------------------------------
+# Setup
+# --------------------------------------------------------------------
+logger = get_logger("igwatch")
+state = State("data/seen.db")
+
+RESULT_KEYWORDS = [
+    "q1", "q2", "q3", "q4",
+    "quarter", "earnings", "results",
+    "trading update", "interim", "half-year",
+    "half year", "interim report"
+]
+DIV = "-" * 72
+
+# --------------------------------------------------------------------
+# Helper functions
+# --------------------------------------------------------------------
+def utc_ts() -> int:
+    return int(datetime.now(timezone.utc).timestamp())
+
+def load_companies() -> List[Dict]:
+    with open("config/companies.yml", "r") as f:
+        data = yaml.safe_load(f)
+    return data.get("companies", [])
+
+def build_watcher(wcfg: Dict):
+    t = wcfg.get("type")
+    if t == "rss":        return RSSWatcher(wcfg["url"])
+    if t == "rss_page":   return RSSPageWatcher(wcfg["url"])
+    if t == "page":       return PageWatcher(wcfg["url"])
+    if t == "edgar_atom":
+        if not ENABLE_EDGAR:
+            raise ValueError("EDGAR disabled by config")
+        return EdgarWatcher(wcfg["ticker"])
+    if t == "wire":       return PressWireWatcher(wcfg["url"])
+    if t == "gnews":      return GoogleNewsWatcher(wcfg["query"])
+    raise ValueError(f"Unknown watcher type: {t}")
+
+def is_recent(published_ts: int | None) -> bool:
+    if not published_ts:
+        return True
+    cutoff = utc_ts() - START_FROM_DAYS * 86400
+    return published_ts >= cutoff
+
+def is_results_like(title: str, url: str) -> bool:
+    t = (title or "").lower()
+    if not STRICT_EARNINGS_KEYWORDS:
+        return True
+    return any(k in t for k in RESULT_KEYWORDS)
+
+def year_guard(title: str, url: str) -> bool:
+    years = [int(y) for y in re.findall(r"(19|20)\d{2}", f"{title} {url}") if len(y) >= 4]
+    if not years:
+        return False
+    latest = max(years)
+    cur = datetime.now().year
+    return latest <= cur - 2
+
+def _has_numbers(result: Dict) -> bool:
+    def _ok(d): 
+        if not isinstance(d, dict): return False
+        v = (d.get("current") or "").strip().lower()
+        return bool(v) and v not in ("not found","n/a")
+    return _ok(result.get("revenue")) or _ok(result.get("ebitda"))
+
+# --------------------------------------------------------------------
+# Email rendering
+# --------------------------------------------------------------------
 def render_email(company: str, src_url: str, result: Dict) -> str:
     lines = [
         f"Company: {company}",
@@ -14,7 +107,6 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
         "Top 5 controversial points:"
     ]
 
-    # Controversial points
     cps = result.get("controversial_points") or []
     if not cps:
         lines.append("- None detected.")
@@ -24,7 +116,7 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
 
     lines.append(DIV)
 
-    # --- EBITDA / Revenue formatting ---
+    # EBITDA / Revenue formatting
     e = result.get("ebitda", {})
     r = result.get("revenue", {})
 
@@ -44,21 +136,16 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
         lines.extend(m)
         lines.append(DIV)
 
-    # Geo breakdown
     lines.append("Geography breakdown (YoY):")
     for g in result.get("geo_breakdown", []):
         lines.append(f"- {g}")
 
     lines.append(DIV)
-
-    # Product breakdown
     lines.append("Product breakdown (YoY):")
     for p in result.get("product_breakdown", []):
         lines.append(f"- {p}")
 
     lines.append(DIV)
-
-    # Final thoughts
     lines.append("Final thoughts:")
     lines.append(result.get("final_thoughts", ""))
 
@@ -67,6 +154,18 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
 
     return "\n".join(lines)
 
+# --------------------------------------------------------------------
+# Email sending
+# --------------------------------------------------------------------
+def send_email(subject: str, body: str):
+    if DRY_RUN:
+        logger.info("[DRY_RUN] Email from %s to %s\nSubject: %s\n\n%s", MAIL_FROM, MAIL_TO, subject, body)
+        return
+    try:
+        smtp_oauth.send_plaintext(subject, body, MAIL_TO)
+        logger.info("Email sent successfully from %s to %s", MAIL_FROM, MAIL_TO)
+    except Exception as e:
+        logger.error("SMTP send failed: %s", e)
 
 # --------------------------------------------------------------------
 # Main loop
@@ -75,11 +174,10 @@ def main_loop():
     companies = load_companies()
     watchers = []
 
-    # Build watcher list with company dict
     for c in companies:
         for w in c.get("watchers", []):
             try:
-                watchers.append((c, build_watcher(w)))
+                watchers.append((c, build_watcher(w)))  # store company dict for domain filtering
             except Exception as e:
                 logger.error("Watcher build failed for %s: %s", c["name"], e)
 
@@ -95,7 +193,7 @@ def main_loop():
 
             try:
                 for item in watcher.poll():
-                    # --- domain filter ---
+                    # domain filter
                     if allowed:
                         netloc = urlparse(item.url).netloc.lower()
                         if not any(netloc == d or netloc.endswith("." + d) for d in allowed):
@@ -114,7 +212,6 @@ def main_loop():
 
                     try:
                         result = fetch_and_summarize(item.url, title_hint=item.title)
-
                         if REQUIRE_NUMBERS and not _has_numbers(result):
                             logger.info("Skip email (no numbers found) for %s", item.url)
                             continue
@@ -132,3 +229,9 @@ def main_loop():
                 logger.error("Watcher error for %s: %s", cname, e)
 
         time.sleep(POLL_SECONDS)
+
+if __name__ == "__main__":
+    try:
+        main_loop()
+    except KeyboardInterrupt:
+        logger.info("Stopped.")
