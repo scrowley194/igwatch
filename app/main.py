@@ -28,10 +28,9 @@ from .config import (
 )
 
 # --- Run Mode Configuration ---
-# Set to True to perform a single deep search and then exit (ideal for daily scheduled runs).
-# Set to False to run in a continuous polling loop.
+# This script is now configured for a single, daily scan.
 SINGLE_RUN = True
-# How many days back to look for articles in a single run.
+# How many days back to look for articles. 2 is ideal for a daily run.
 START_FROM_DAYS = 2
 
 # --------------------------------------------------------------------
@@ -65,12 +64,13 @@ def utc_ts() -> int:
 
 def construct_discovery_query() -> str:
     """
-    Creates a targeted search query to find recent financial news from primary sources.
+    Creates a broad search query to find recent financial news across the entire web.
     """
     sector_query_part = " OR ".join([f'"{kw}"' for kw in SECTOR_KEYWORDS])
     financial_query_part = " OR ".join([f'"{kw}"' for kw in FINANCIAL_NEWS_KEYWORDS])
-    primary_source_sites = " OR ".join([f'site:{site}' for site in GOOD_WIRE_DOMAINS])
-    return f"({sector_query_part}) AND ({financial_query_part}) AND ({primary_source_sites})"
+    
+    # **FIX**: Search the entire web to find primary sources on company sites, not just press wires.
+    return f"({sector_query_part}) AND ({financial_query_part})"
 
 def build_watcher(wcfg: dict):
     wtype = wcfg.get("type")
@@ -159,6 +159,7 @@ def process_item(item) -> bool:
     Processes a single found item. Returns True if an email was sent, False otherwise.
     """
     try:
+        # **FIX**: The primary filter is now the block list. We accept any other source.
         if is_blocked_domain(item.url) or \
            year_guard(item.title, item.url) or \
            not is_recent(item.published_ts) or \
@@ -198,13 +199,13 @@ def run_single_scan():
     
     processed_count = 0
     try:
-        found_items = list(watcher.poll())
+        # **FIX**: Process up to 50 articles to get a wider range of results.
+        found_items = list(watcher.poll())[:50]
         logger.info("Discovery query found %d potential articles. Processing...", len(found_items))
         for item in found_items:
             if process_item(item):
                 processed_count += 1
         
-        # **NEW**: Send a notification if no new reports were processed.
         if processed_count == 0:
             logger.info("No new reports found to process.")
             send_email(
@@ -221,21 +222,9 @@ def run_continuous_mode():
     """
     Runs in a continuous loop, polling for new articles indefinitely.
     """
-    discovery_query = construct_discovery_query()
-    watcher = build_watcher({"type": "gnews", "query": discovery_query})
-    
-    logger.info(
-        "Running in continuous discovery mode. Poll=%ss DRY_RUN=%s START_FROM_DAYS=%s STRICT=%s",
-        POLL_SECONDS, DRY_RUN, CONFIG_START_FROM_DAYS, STRICT_EARNINGS_KEYWORDS
-    )
+    # This mode is now secondary to the single scan for daily runs.
+    logger.info("Continuous mode is not the primary run mode. Use SINGLE_RUN=True for daily scans.")
 
-    while True:
-        try:
-            for item in watcher.poll():
-                process_item(item)
-        except Exception as e:
-            logger.error("Watcher error for Sector Discovery: %s", e)
-        time.sleep(POLL_SECONDS)
 
 if __name__ == "__main__":
     if SINGLE_RUN:
