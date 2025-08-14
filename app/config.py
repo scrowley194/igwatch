@@ -43,10 +43,12 @@ GOOD_WIRE_DOMAINS = set([d.strip().lower() for d in os.getenv(
     "businesswire.com,globenewswire.com,prnewswire.com,newsfilecorp.com,newsdirect.com"
 ).split(",") if d.strip()])
 
+# **MODIFIED**: Removed news.google.com and other major news sites from the default block list.
+# This allows the script to process links from Google News and follow them to their final destination.
 BLOCK_DOMAINS = set([d.strip().lower() for d in os.getenv(
     "BLOCK_DOMAINS",
-    "news.google.com,seekingalpha.com,marketwatch.com,msn.com,finance.yahoo.com,"
-    "yahoo.com,bloomberg.com,thestreet.com,benzinga.com,investopedia.com,"
-    "sportsgrid.com,ainvest.com"
+    # "news.google.com" is removed to allow processing.
+    # Other major news sites (yahoo, bloomberg) are also removed, as they can be valid final destinations.
+    "seekingalpha.com,marketwatch.com,msn.com,thestreet.com,benzinga.com,investopedia.com,"
+    "sportsgrid.com,ainvest.com" # Keeping lower-quality / pure aggregate sites
 ).split(",") if d.strip()])
-
