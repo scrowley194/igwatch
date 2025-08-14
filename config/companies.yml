@@ -1,5 +1,5 @@
 companies:
-  - name: Flutter Entertainment
+  - name: "Flutter Entertainment"
     ticker_us: FLUT
     country: UK/US
     category: operator
@@ -17,13 +17,13 @@ companies:
         url: https://www.flutter.com/investors/results-reports-and-presentations/year/2025/
       - type: gnews
         query: >
-          ("Flutter Entertainment" OR FLUT)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR "trading update" OR guidance)
-          (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com OR site:newsfilecorp.com OR site:newsdirect.com)
+            ("Flutter Entertainment" OR FLUT)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR "trading update" OR guidance)
+            (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com OR site:newsfilecorp.com OR site:newsdirect.com)
       - type: wire
         url: https://www.businesswire.com/newsroom?keywords=Flutter%20Entertainment
 
-  - name: Entain plc
+  - name: "Entain plc"
     country: UK
     category: operator
     allowed_domains:
@@ -36,11 +36,11 @@ companies:
         url: https://www.entaingroup.com/investor-relations/regulatory-news/
       - type: gnews
         query: >
-          ("Entain" OR "Entain plc")
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR "trading update" OR guidance)
-          (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com)
+            ("Entain" OR "Entain plc")
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR "trading update" OR guidance)
+            (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com)
 
-  - name: Evoke plc (ex-888)
+  - name: "Evoke plc (ex-888)"
     country: UK
     category: operator
     allowed_domains:
@@ -54,11 +54,11 @@ companies:
         url: https://www.evokeplc.com/investors/results-reports-and-presentations/
       - type: gnews
         query: >
-          ("Evoke plc" OR 888)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR "trading update" OR guidance)
-          (site:businesswire.com OR site:globenewswire.com)
+            ("Evoke plc" OR 888)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR "trading update" OR guidance)
+            (site:businesswire.com OR site:globenewswire.com)
 
-  - name: DraftKings
+  - name: "DraftKings"
     ticker_us: DKNG
     country: US
     category: operator
@@ -75,11 +75,11 @@ companies:
         url: https://www.businesswire.com/portal/site/home/search/?searchType=news&searchTerm=DraftKings
       - type: gnews
         query: >
-          (DraftKings OR DKNG)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com)
+            (DraftKings OR DKNG)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com)
 
-  - name: MGM Resorts
+  - name: "MGM Resorts"
     ticker_us: MGM
     country: US
     category: operator
@@ -97,11 +97,11 @@ companies:
         url: https://www.businesswire.com/portal/site/home/search/?searchType=news&searchTerm=MGM%20Resorts
       - type: gnews
         query: >
-          ("MGM Resorts")
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:businesswire.com OR site:globenewswire.com)
+            ("MGM Resorts")
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:businesswire.com OR site:globenewswire.com)
 
-  - name: Caesars Entertainment
+  - name: "Caesars Entertainment"
     ticker_us: CZR
     country: US
     category: operator
@@ -119,11 +119,11 @@ companies:
         url: https://www.businesswire.com/portal/site/home/search/?searchType=news&searchTerm=Caesars%20Entertainment
       - type: gnews
         query: >
-          ("Caesars Entertainment" OR CZR)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:businesswire.com OR site:globenewswire.com)
+            ("Caesars Entertainment" OR CZR)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:businesswire.com OR site:globenewswire.com)
 
-  - name: PENN Entertainment
+  - name: "PENN Entertainment"
     ticker_us: PENN
     country: US
     category: operator
@@ -139,11 +139,11 @@ companies:
         url: https://www.businesswire.com/portal/site/home/search/?searchType=news&searchTerm=PENN%20Entertainment
       - type: gnews
         query: >
-          ("PENN Entertainment" OR PENN)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:businesswire.com OR site:globenewswire.com)
+            ("PENN Entertainment" OR PENN)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:businesswire.com OR site:globenewswire.com)
 
-  - name: Super Group (Betway / Spin)
+  - name: "Super Group (Betway / Spin)"
     ticker_us: SGHC
     country: Global/US
     category: operator
@@ -158,11 +158,11 @@ companies:
         url: https://www.globenewswire.com/en/search/keyword/%22Super%20Group%22
       - type: gnews
         query: >
-          ("Super Group" Betway Spin)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:globenewswire.com OR site:businesswire.com)
+            ("Super Group" Betway Spin)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:globenewswire.com OR site:businesswire.com)
 
-  - name: Betsson AB
+  - name: "Betsson AB"
     country: Sweden
     category: operator
     allowed_domains:
@@ -173,11 +173,11 @@ companies:
         url: https://www.betssonab.com/newsroom/press-releases
       - type: gnews
         query: >
-          ("Betsson AB" OR Betsson)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:globenewswire.com)
+            ("Betsson AB" OR Betsson)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:globenewswire.com)
 
-  - name: Evolution AB
+  - name: "Evolution AB"
     country: Sweden
     category: supplier
     allowed_domains:
@@ -189,11 +189,11 @@ companies:
         url: https://www.evolution.com/investors/press-releases/
       - type: gnews
         query: >
-          ("Evolution AB" OR "Evolution Gaming")
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:globenewswire.com OR site:businesswire.com)
+            ("Evolution AB" OR "Evolution Gaming")
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:globenewswire.com OR site:businesswire.com)
 
-  - name: Light & Wonder (LNW)
+  - name: "Light & Wonder (LNW)"
     ticker_us: LNW
     country: US/Australia
     category: supplier
@@ -208,11 +208,11 @@ companies:
         url: https://www.businesswire.com/portal/site/home/search/?searchType=news&searchTerm=%22Light%20%26%20Wonder%22
       - type: gnews
         query: >
-          ("Light & Wonder" OR LNW)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:businesswire.com OR site:globenewswire.com)
+            ("Light & Wonder" OR LNW)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:businesswire.com OR site:globenewswire.com)
 
-  - name: Playtech plc
+  - name: "Playtech plc"
     country: UK
     category: supplier
     allowed_domains:
@@ -225,11 +225,11 @@ companies:
         url: https://www.investors.playtech.com/regulatory-news
       - type: gnews
         query: >
-          (Playtech)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR "trading update" OR guidance)
-          (site:businesswire.com OR site:globenewswire.com)
+            (Playtech)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR "trading update" OR guidance)
+            (site:businesswire.com OR site:globenewswire.com)
 
-  - name: Kambi Group
+  - name: "Kambi Group"
     country: Sweden/Malta
     category: supplier
     allowed_domains:
@@ -242,11 +242,11 @@ companies:
         url: https://www.kambi.com/investors/financial-reports-and-presentations/
       - type: gnews
         query: >
-          ("Kambi Group" OR Kambi)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:globenewswire.com)
+            ("Kambi Group" OR Kambi)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:globenewswire.com)
 
-  - name: Sportradar
+  - name: "Sportradar"
     ticker_us: SRAD
     country: Switzerland/US
     category: data
@@ -259,11 +259,11 @@ companies:
         url: https://rss.globenewswire.com/rssfeed/organization/bUQ4MtcTvBAjR_cda0el8g%3D%3D
       - type: gnews
         query: >
-          (Sportradar OR SRAD)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:globenewswire.com OR site:businesswire.com)
+            (Sportradar OR SRAD)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:globenewswire.com OR site:businesswire.com)
 
-  - name: Genius Sports
+  - name: "Genius Sports"
     ticker_us: GENI
     country: UK/US
     category: data
@@ -279,11 +279,11 @@ companies:
         url: https://www.globenewswire.com/en/search/keyword/%22Genius%20Sports%22
       - type: gnews
         query: >
-          ("Genius Sports" OR GENI)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
-          (site:globenewswire.com OR site:businesswire.com)
+            ("Genius Sports" OR GENI)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance)
+            (site:globenewswire.com OR site:businesswire.com)
 
-  - name: Sector news wires
+  - name: "Sector news wires"
     category: aggregator
     allowed_domains:
       - businesswire.com
@@ -298,11 +298,11 @@ companies:
         url: https://www.globenewswire.com/en/search/keyword/igaming%20OR%20%22sports%20betting%22%20OR%20casino
       - type: gnews
         query: >
-          (igaming OR "online casino" OR "sports betting" OR casino)
-          (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance OR "trading update")
-          (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com OR site:newsfilecorp.com OR site:newsdirect.com)
+            (igaming OR "online casino" OR "sports betting" OR casino)
+            (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance OR "trading update")
+            (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com OR site:newsfilecorp.com OR site:newsdirect.com)
 
-  - name: Sector (Google News wires)
+  - name: "Sector (Google News wires)"
     category: aggregator
     allowed_domains:
       - businesswire.com
@@ -311,5 +311,5 @@ companies:
     watchers:
       - type: gnews
         query: >
-          (earnings OR results OR "Q1" OR "Q2" OR "Q3" OR "Q4" OR "quarterly")
-          (casino OR igaming OR "sports betting" OR "online casino")
+            (earnings OR results OR "Q1" OR "Q2" OR "Q3" OR "Q4" OR "quarterly")
+            (casino OR igaming OR "sports betting" OR "online casino")
