@@ -9,7 +9,7 @@ on:
         options: ["true", "false"]
         default: "true"
   schedule:
-    - cron: "*/5 * * * *"   # every 5 minutes
+    - cron: "*/5 * * * *"
 
 jobs:
   run:
@@ -31,7 +31,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Persist dedupe DB at data/seen.db
       - name: Restore state DB
         uses: actions/cache/restore@v4
         with:
@@ -63,11 +62,10 @@ jobs:
             echo "SMTP_PORT=587"
             echo "SMTP_USER=${{ secrets.SMTP_USER }}"
             echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
-            echo "MAIL_FROM=stuatnext@gmail.com"
+            echo "MAIL_FROM=${{ secrets.SMTP_USER }}"
             echo "MAIL_TO=stuart@next.io"
-            echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)"
+            echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: ${{ secrets.SMTP_USER }})"
           } > .env
-
 
       - name: Run watcher (bounded)
         run: |
