@@ -39,17 +39,16 @@ jobs:
           restore-keys: |
             igwatch-seen-db-${{ runner.os }}-v2-
 
-      - name: Choose runtime params
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "RUN_TIMEOUT=180" >> $GITHUB_ENV
-            echo "POLL_SECONDS=20" >> $GITHUB_ENV
-            echo "DRY_RUN=${{ inputs.dry_run }}" >> $GITHUB_ENV
-          else
-            echo "RUN_TIMEOUT=75" >> $GITHUB_ENV
-            echo "POLL_SECONDS=60" >> $GITHUB_ENV
-            echo "DRY_RUN=false" >> $GITHUB_ENV
-          fi
+# Choose runtime params
+if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+  echo "RUN_TIMEOUT=600" >> $GITHUB_ENV      # 10 minutes for manual debug
+  echo "POLL_SECONDS=20" >> $GITHUB_ENV
+  echo "DRY_RUN=${{ inputs.dry_run }}" >> $GITHUB_ENV
+else
+  echo "RUN_TIMEOUT=75" >> $GITHUB_ENV       # keep short on the cron run
+  echo "POLL_SECONDS=60" >> $GITHUB_ENV
+  echo "DRY_RUN=false" >> $GITHUB_ENV
+fi
 
       - name: Create .env for this run (Gmail)
         run: |
@@ -63,7 +62,7 @@ jobs:
             echo "SMTP_USER=${{ secrets.SMTP_USER }}"
             echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
             echo "MAIL_FROM=${{ secrets.SMTP_USER }}"
-            echo "MAIL_TO=stuart@next.io"
+            echo "MAIL_TO=${{ secrets.SMTP_USER }}"
             echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: ${{ secrets.SMTP_USER }})"
           } > .env
 
@@ -88,3 +87,15 @@ jobs:
         with:
           name: igwatch-logs
           path: data/seen.db
+
+          - name: Smoke test email (temporary)
+  env:
+    SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+  run: |
+    python - <<'PY'
+    import os
+    from app.emailers.smtp_oauth import send_plaintext
+    to = os.getenv("MAIL_TO","").split(",")
+    send_plaintext("igwatch smoke test", "This is a test from GitHub Actions.", to)
+    print("Sent smoke test to:", to)
+    PY
