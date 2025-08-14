@@ -52,21 +52,22 @@ jobs:
             echo "DRY_RUN=false" >> $GITHUB_ENV
           fi
 
-- name: Create .env for this run (Gmail)
-  run: |
-    {
-      echo "POLL_SECONDS=${POLL_SECONDS}"
-      echo "DRY_RUN=${DRY_RUN}"
-      echo "START_FROM_DAYS=45"
-      echo "STRICT_EARNINGS_KEYWORDS=true"
-      echo "SMTP_HOST=smtp.gmail.com"
-      echo "SMTP_PORT=587"
-      echo "SMTP_USER=stuatnext@gmail.com"
-      echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
-      echo "MAIL_FROM=stuatnext@gmail.com"
-      echo "MAIL_TO=stuart@next.io"
-      echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)"
-    } > .env
+      - name: Create .env for this run (Gmail)
+        run: |
+          {
+            echo "POLL_SECONDS=${POLL_SECONDS}"
+            echo "DRY_RUN=${DRY_RUN}"
+            echo "START_FROM_DAYS=45"
+            echo "STRICT_EARNINGS_KEYWORDS=true"
+            echo "SMTP_HOST=smtp.gmail.com"
+            echo "SMTP_PORT=587"
+            echo "SMTP_USER=stuatnext@gmail.com"
+            echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
+            echo "MAIL_FROM=stuatnext@gmail.com"
+            echo "MAIL_TO=stuart@next.io"
+            echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)"
+          } > .env
+
 
       - name: Run watcher (bounded)
         run: |
