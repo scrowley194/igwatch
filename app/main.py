@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
+from .watchers.press_wires import PressWireWatcher, GoogleNewsWatcher
 from .utils.log import get_logger
 from .utils.state import State
 from .watchers.rss_watcher import RSSWatcher, RSSPageWatcher
@@ -57,14 +58,14 @@ def build_watcher(wcfg: dict):
     if wtype == "rss_page":
         return RSSPageWatcher(wcfg["url"])
     if wtype == "page":
-        # NOTE: no follow_detail arg here (your PageWatcher doesn't accept it)
         return PageWatcher(
             wcfg["url"],
             allowed_domains=wcfg.get("allowed_domains"),
         )
+    if wtype == "gnews":                          # <-- add this block
+        return GoogleNewsWatcher(wcfg["query"])   #     uses the query from YAML
     if wtype == "edgar_atom":
         if not ENABLE_EDGAR:
-            # Return None so we can skip cleanly during list build
             return None
         return EdgarWatcher(wcfg["ticker"])
     if wtype == "wire":
