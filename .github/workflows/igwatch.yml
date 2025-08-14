@@ -68,6 +68,7 @@ jobs:
             echo "ENABLE_EDGAR=false"
             echo "REQUIRE_NUMBERS=true"
             echo "FIRST_PARTY_ONLY=true"
+            echo "SCRAPING_API_KEY=${{ secrets.SCRAPING_API_KEY }}"
             echo "GOOD_WIRE_DOMAINS=businesswire.com,globenewswire.com,prnewswire.com,newsfilecorp.com,newsdirect.com"
           } > .env
 
