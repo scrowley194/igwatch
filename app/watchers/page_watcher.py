@@ -1,28 +1,88 @@
-# page_watcher.py
-import re, time
-from typing import Iterable, List, Optional
-import requests
+# app/watchers/page_watcher.py
+import re
+import time
+import logging
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from .base import Watcher, FoundItem
 from ..config import BROWSER_UA, FIRST_PARTY_ONLY, GOOD_WIRE_DOMAINS, BLOCK_DOMAINS
 
+logger = logging.getLogger(__name__)
+
+# Titles like “Reports 24% revenue growth …” often don’t include “Q2”/“earnings”
 KEYWORDS = [
-    "results","earnings","quarter","q1","q2","q3","q4",
-    "trading update","interim","half-year","half year","full year","annual",
-    "preliminary","interim report","trading statement"
+    "q1", "q2", "q3", "q4",
+    "quarter", "quarterly",
+    "earnings", "results", "financial results",
+    "trading update", "interim", "half-year", "half year", "full year",
+    "preliminary", "interim report", "trading statement",
+    "reports", "guidance", "revenue"  # allow strong finance phrasing
 ]
 
-SESSION = requests.Session()
-SESSION.headers.update({
-    "User-Agent": BROWSER_UA,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Connection": "keep-alive",
-})
+TIMEOUT = (10, 45)  # (connect, read) seconds
 
-def _parse_time(soup: BeautifulSoup) -> Optional[int]:
+def _session():
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": BROWSER_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Connection": "keep-alive",
+        "Referer": "https://www.google.com/"  # helps with some IR/CDN setups
+    })
+    retry = Retry(
+        total=3,
+        backoff_factor=0.8,
+        status_forcelist=[403, 408, 429, 500, 502, 503, 504],
+        allowed_methods=["GET", "HEAD"]
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+SESSION = _session()
+
+def _host(u: str) -> str:
+    return urlparse(u).netloc.split(":")[0].lower()
+
+def _allowed(base_url: str, candidate_url: str, allowed_domains=None) -> bool:
+    allowed_domains = [d.lower() for d in (allowed_domains or [])]
+    host = _host(candidate_url)
+    if host in BLOCK_DOMAINS:
+        return False
+
+    # Per-watcher allowlist
+    if allowed_domains and not any(host == d or host.endswith("." + d) for d in allowed_domains):
+        return False
+
+    base_host = _host(base_url)
+    # Same-site is always ok
+    if host == base_host or host.endswith("." + base_host):
+        return True
+
+    # If not same-site, only allow known wires in FIRST_PARTY_ONLY mode
+    if FIRST_PARTY_ONLY:
+        return host in GOOD_WIRE_DOMAINS
+
+    return True
+
+def _link_is_results(text: str, href: str) -> bool:
+    lt = (text or "").lower()
+    if any(k in lt for k in KEYWORDS):
+        return True
+    # Some sites encode quarter in URL path more than title
+    h = (href or "").lower()
+    if re.search(r"/(q[1-4]|first|second|third|fourth)[-_ ]quarter\b", h):
+        return True
+    return False
+
+def _page_time(soup: BeautifulSoup):
     t = soup.find("time", attrs={"datetime": True})
     if t and t.get("datetime"):
         try:
@@ -32,59 +92,80 @@ def _parse_time(soup: BeautifulSoup) -> Optional[int]:
             pass
     return None
 
-def _link_is_results(text: str) -> bool:
-    lt = (text or "").lower()
-    return any(k in lt for k in KEYWORDS)
+def _pick_pdf_or_release(detail_url: str):
+    """Fetch detail page, prefer a PDF 'deck' if present, else return the detail page itself."""
+    try:
+        r = SESSION.get(detail_url, timeout=TIMEOUT)
+        r.raise_for_status()
+    except Exception as e:
+        logger.debug("Detail fetch failed for %s: %s", detail_url, e)
+        return detail_url  # fallback to the detail page
 
-def _host(netloc: str) -> str:
-    return netloc.split(":")[0].lower()
+    soup = BeautifulSoup(r.text, "lxml")
 
-def _allowed(base_url: str, candidate_url: str) -> bool:
-    host = _host(urlparse(candidate_url).netloc)
-    if host in BLOCK_DOMAINS:
-        return False
-    base_host = _host(urlparse(base_url).netloc)
+    # Prefer the investor 'static-files' PDF or any .pdf link labelled presentation/deck/results
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        text = a.get_text(" ", strip=True).lower()
+        url = urljoin(detail_url, href)
+        if url.lower().endswith(".pdf") or "/static-files/" in url.lower():
+            if "presentation" in text or "deck" in text or "results" in text or "earnings" in text:
+                return url
 
-    # Same-site is always allowed
-    if host.endswith(base_host):
-        return True
+    # Accept Business Wire / GlobeNewswire mirrors if present
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        url = urljoin(detail_url, href)
+        host = _host(url)
+        if host in GOOD_WIRE_DOMAINS:
+            return url
 
-    # If not same-site, allow only known wires when FIRST_PARTY_ONLY is on
-    if FIRST_PARTY_ONLY:
-        return host in GOOD_WIRE_DOMAINS
-
-    return True  # permissive if FIRST_PARTY_ONLY=false
+    return detail_url
 
 class PageWatcher(Watcher):
     name = "page"
 
-    def __init__(self, page_url: str, allowed_domains: Optional[List[str]] = None):
+    def __init__(self, page_url, allowed_domains=None, follow_detail=False):
         self.page_url = page_url
         self.allowed_domains = [d.lower() for d in (allowed_domains or [])]
+        self.follow_detail = bool(follow_detail)
 
-    def poll(self) -> Iterable[FoundItem]:
-        res = SESSION.get(self.page_url, timeout=25)
-        res.raise_for_status()
+    def poll(self):
+        try:
+            res = SESSION.get(self.page_url, timeout=TIMEOUT)
+            res.raise_for_status()
+        except Exception as e:
+            # Many Q4 / gcs-web pages 403 under automation — swallow and move on
+            logger.debug("PageWatcher fetch failed for %s: %s", self.page_url, e)
+            return []
+
         soup = BeautifulSoup(res.text, "lxml")
-        page_ts = _parse_time(soup) or int(time.time())
+        page_ts = _page_time(soup) or int(time.time())
 
-        anchors = soup.select("article a, main a, .content a, #content a, .news a") or soup.find_all("a", href=True)
+        # Broad but safe scopes
+        anchors = soup.select("article a, main a, .content a, #content a, .news a, .events a") or soup.find_all("a", href=True)
+
         seen = set()
+        items = []
         for a in anchors:
             title = a.get_text(" ", strip=True)
             href = a.get("href", "")
             if not title or not href:
                 continue
-            if not _link_is_results(title):
+            if not _link_is_results(title, href):
                 continue
+
             url = urljoin(self.page_url, href)
-            host = _host(urlparse(url).netloc)
-            # Per-company allowlist (optional)
-            if self.allowed_domains and not any(host.endswith(d) for d in self.allowed_domains):
-                continue
-            if not _allowed(self.page_url, url):
+            if not _allowed(self.page_url, url, self.allowed_domains):
                 continue
             if url in seen:
                 continue
             seen.add(url)
-            yield FoundItem(self.page_url, title, url, page_ts)
+
+            final_url = _pick_pdf_or_release(url) if self.follow_detail else url
+            if not _allowed(self.page_url, final_url, self.allowed_domains):
+                continue
+
+            items.append(FoundItem(self.page_url, title, final_url, page_ts))
+
+        return items
