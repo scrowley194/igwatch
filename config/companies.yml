@@ -251,8 +251,6 @@ companies:
         url: "https://www.businesswire.com/newsroom?keywords=igaming%20OR%20%22sports%20betting%22%20OR%20casino"
       - type: "wire"
         url: "https://www.globenewswire.com/en/search/keyword/igaming%20OR%20%22sports%20betting%22%20OR%20casino"
-      - type: "gnews"
-        query: "(igaming OR \"online casino\" OR \"sports betting\" OR casino) (Q1 OR Q2 OR Q3 OR Q4 OR earnings OR results OR guidance OR \"trading update\") (site:businesswire.com OR site:globenewswire.com OR site:prnewswire.com OR site:newsfilecorp.com OR site:newsdirect.com)"
 
   - name: "Sector (Google News wires)"
     category: "aggregator"
