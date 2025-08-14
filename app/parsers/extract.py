@@ -1,4 +1,3 @@
-# app/parsers/extract.py
 import re
 from urllib.parse import urlparse
 import requests
@@ -54,14 +53,14 @@ def _extract_numbers(text: str) -> dict:
     if y:
         out["ebitda"]["yoy"] = _norm(y.group(1))
 
-    # geo / product bullets (look for lines with a region/segment + %)
+    # geo / product bullets
     for line in t.splitlines():
         if re.search(r"\b(US|United States|UK|United Kingdom|Europe|Italy|Spain|Germany|Nordics|Canada|Australia|LatAm|APAC)\b", line, re.I) and re.search(_PCT, line):
             out["geo_breakdown"].append(_norm(line))
         if re.search(r"\b(OSB|Sportsbook|iCasino|Casino|Retail|B2B|B2C|Gaming|Lottery|Bingo|Poker|Slots|Live Dealer)\b", line, re.I) and re.search(_PCT, line):
             out["product_breakdown"].append(_norm(line))
 
-    # controversies (very naive keywords)
+    # controversies
     for kw in ["regulatory", "investigation", "fine", "penalty", "data breach", "governance", "restatement"]:
         if re.search(rf"\b{re.escape(kw)}\b", t, re.I):
             out["controversial_points"].append(f"Mentions: {kw}")
@@ -72,7 +71,6 @@ def _summarize_html(url: str, html: str) -> dict:
     soup = BeautifulSoup(html, "lxml")
     title = soup.find("h1") or soup.find("title")
     headline = _norm(title.get_text(" ", strip=True) if title else "")
-    # pick opening summary paragraph or bullets
     summary = ""
     p = soup.select_one("article p, main p, .content p, #content p")
     if p:
@@ -87,9 +85,7 @@ def _summarize_html(url: str, html: str) -> dict:
     }
 
 def _summarize_pdf(text: str) -> dict:
-    # Same number extraction on the PDF's text
     data = _extract_numbers(text)
-    # Headline/summary are weaker for PDFs; leave generic if not detected
     return {
         "headline": "Results presentation / PDF",
         "short_summary": "Key figures extracted from PDF.",
@@ -98,7 +94,6 @@ def _summarize_pdf(text: str) -> dict:
     }
 
 def fetch_and_summarize(url: str, title_hint: str = "") -> dict:
-    # 1) Fetch with redirects to land on the final URL
     r = SESSION.get(url, timeout=35, allow_redirects=True)
     r.raise_for_status()
     final_url = r.url
@@ -112,6 +107,5 @@ def fetch_and_summarize(url: str, title_hint: str = "") -> dict:
                if isinstance(r.content, (bytes, bytearray)) else extract_text(final_url)
         return _summarize_pdf(text)
 
-    # HTML path
     html = r.text
     return _summarize_html(final_url, html)
