@@ -61,7 +61,7 @@ jobs:
             echo "STRICT_EARNINGS_KEYWORDS=true"
             echo "SMTP_HOST=smtp.gmail.com"
             echo "SMTP_PORT=587"
-            echo "SMTP_USER=stuatnext@gmail.com"
+            echo "SMTP_USER=${{ secrets.SMTP_USER }}"
             echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
             echo "MAIL_FROM=stuatnext@gmail.com"
             echo "MAIL_TO=stuart@next.io"
