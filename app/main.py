@@ -48,8 +48,15 @@ def utc_ts() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
 def load_companies() -> list[dict]:
-    with open("config/companies.yml", "r") as f:
-        return yaml.safe_load(f).get("companies", [])
+    import sys
+    try:
+        with open("config/companies.yml", "r") as f:
+            return yaml.safe_load(f).get("companies", [])
+    except yaml.YAMLError as e:
+        print("\n=== YAML PARSE DEBUG ===")
+        print(e)
+        print("========================\n")
+        sys.exit(1)
 
 def build_watcher(wcfg: dict):
     wtype = wcfg.get("type")
