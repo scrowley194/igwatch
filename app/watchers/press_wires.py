@@ -57,7 +57,7 @@ class PressWireWatcher(Watcher):
             yield FoundItem(self.listing_url, title, url, now_ts)
 
 # ---------------------------
-# Google News RSS watcher (Rewritten to use the proxy for resolving redirects)
+# Google News RSS watcher (Rewritten to use the proxy for the main feed and for resolving redirects)
 # ---------------------------
 class GoogleNewsWatcher(Watcher):
     """
@@ -75,7 +75,26 @@ class GoogleNewsWatcher(Watcher):
 
     def poll(self) -> Iterable[FoundItem]:
         feed_url = self._feed_url()
-        feed = feedparser.parse(feed_url)
+        
+        # **FIX**: Fetch the main RSS feed through the proxy to avoid being blocked by Google.
+        feed_content = ""
+        try:
+            if SCRAPING_API_KEY:
+                proxy_url = "http://api.scraperapi.com"
+                params = {"api_key": SCRAPING_API_KEY, "url": feed_url, "country_code": "us"}
+                r = SESSION.get(proxy_url, params=params, timeout=60)
+                r.raise_for_status()
+                feed_content = r.text
+            else: # Fallback for local testing
+                r = SESSION.get(feed_url, timeout=20)
+                r.raise_for_status()
+                feed_content = r.text
+        except Exception as e:
+            print(f"Failed to fetch Google News RSS feed: {e}")
+            return # Exit if the feed can't be fetched
+
+        feed = feedparser.parse(feed_content)
+        
         for e in feed.entries[:30]:
             title = (e.get("title") or "").strip()
             link = (e.get("link") or "").strip()
@@ -87,28 +106,15 @@ class GoogleNewsWatcher(Watcher):
             try:
                 if "news.google.com" in link and SCRAPING_API_KEY:
                     proxy_url = "http://api.scraperapi.com"
-                    params = {
-                        "api_key": SCRAPING_API_KEY,
-                        "url": link,
-                        "country_code": "us"
-                    }
+                    params = {"api_key": SCRAPING_API_KEY, "url": link, "country_code": "us"}
                     # Use a HEAD request for efficiency, we only need the final URL
                     r = SESSION.head(proxy_url, params=params, timeout=20, allow_redirects=True)
-                    if r.url:
-                        # The proxy will return a URL with its own domain, parse the actual URL from it
-                        parsed_proxy_url = urlparse(r.url)
-                        if 'url=' in parsed_proxy_url.query:
-                           final_url = parsed_proxy_url.query.split('url=')[-1]
-                        else: # Fallback if the structure changes
-                           final_url = r.url
-
+                    # ScraperAPI doesn't follow redirects on HEAD, so we parse its response URL
+                    final_url = r.url
                 elif "news.google.com" in link: # Fallback for local testing without proxy
                     r = SESSION.get(link, timeout=(5, 15), allow_redirects=True)
-                    if r.url:
-                        final_url = r.url
+                    final_url = r.url
             except Exception:
-                # If resolution fails, we'll just yield the original google link,
-                # which will likely be skipped later, but it prevents a crash.
                 pass
 
             ts = None
