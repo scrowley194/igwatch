@@ -47,16 +47,16 @@ def load_companies() -> List[Dict]:
         data = yaml.safe_load(f)
     return data.get("companies", [])
 
+from .watchers.press_wires import PressWireWatcher, GoogleNewsWatcher
+
 def build_watcher(wcfg: Dict):
     t = wcfg.get("type")
-    if t == "rss":
-        return RSSWatcher(wcfg["url"])
-    if t == "rss_page":
-        return RSSPageWatcher(wcfg["url"])
-    if t == "page":
-        return PageWatcher(wcfg["url"])
-    if t == "edgar_atom":
-        return EdgarWatcher(wcfg["ticker"])
+    if t == "rss":        return RSSWatcher(wcfg["url"])
+    if t == "rss_page":   return RSSPageWatcher(wcfg["url"])
+    if t == "page":       return PageWatcher(wcfg["url"])
+    if t == "edgar_atom": return EdgarWatcher(wcfg["ticker"])
+    if t == "wire":       return PressWireWatcher(wcfg["url"])
+    if t == "gnews":      return GoogleNewsWatcher(wcfg["query"])
     raise ValueError(f"Unknown watcher type: {t}")
 
 def is_recent(published_ts: int | None) -> bool:
