@@ -251,5 +251,3 @@ companies:
         query: >
           (earnings OR results OR "Q1" OR "Q2" OR "Q3" OR "Q4" OR "quarterly")
           (casino OR igaming OR "sports betting" OR "online casino")
-python -c "import yaml; yaml.safe_load(open('config/companies.yml'))"
-
