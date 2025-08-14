@@ -1,203 +1,146 @@
-companies:
-  - name: "Flutter Entertainment"
-    ticker_us: "FLUT"
-    country: "UK/US"
-    category: "operator"
-    allowed_domains: ["flutter.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://www.flutter.com/investors/regulatory-news"
-      - type: "page"
-        url: "https://www.flutter.com/investors/results-reports-and-presentations/year/2025/"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=Flutter%20Entertainment"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22Flutter%20Entertainment%22"
+import os
+import json
+import requests
+from datetime import datetime, timedelta
 
-  - name: "Entain plc"
-    country: "UK"
-    category: "operator"
-    allowed_domains: ["entaingroup.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://www.entaingroup.com/investor-relations/regulatory-news/"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=Entain"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/Entain"
+# --- Configuration ---
+# Keywords to define the sectors we are interested in.
+SECTOR_KEYWORDS = [
+    "igaming",
+    "online casino",
+    "sports betting",
+    "gambling technology",
+]
 
-  - name: "Evoke plc (ex-888)"
-    country: "UK"
-    category: "operator"
-    allowed_domains: ["evokeplc.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://www.evokeplc.com/investors/regulatory-news/"
-      - type: "page"
-        url: "https://www.evokeplc.com/investors/results-reports-and-presentations/"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=Evoke%20plc%20OR%20888"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22888%22%20OR%20%22Evoke%20plc%22"
+# Keywords to identify relevant financial news announcements.
+FINANCIAL_NEWS_KEYWORDS = [
+    "financial results",
+    "quarterly earnings",
+    "quarterly update",
+    "annual report",
+    "guidance update",
+    "earnings call",
+    "Q1", "Q2", "Q3", "Q4", # Quarterly reports
+    "H1", "H2",             # Half-year reports
+    "FY",                   # Full-year reports
+    "first quarter",
+    "second quarter",
+    "third quarter",
+    "fourth quarter",
+    "full year",
+    "half year"
+]
 
-  - name: "DraftKings"
-    ticker_us: "DKNG"
-    country: "US"
-    category: "operator"
-    allowed_domains: ["draftkings.gcs-web.com", "draftkings.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "rss_page"
-        url: "https://draftkings.gcs-web.com/shareholder-services/rss-feeds/"
-      - type: "wire"
-        url: "https://www.businesswire.com/portal/site/home/search/?searchType=news&searchTerm=DraftKings"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/DraftKings"
+# Press wire domains to search. These are the most common sources for official financial news.
+PRESS_WIRE_SITES = [
+    "businesswire.com",
+    "globenewswire.com",
+    "prnewswire.com",
+]
 
-  - name: "MGM Resorts"
-    ticker_us: "MGM"
-    country: "US"
-    category: "operator"
-    allowed_domains: ["investors.mgmresorts.com", "mgmresorts.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "rss_page"
-        url: "https://investors.mgmresorts.com/rss/"
-      - type: "page"
-        url: "https://investors.mgmresorts.com/investors/news-releases/default.aspx"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=MGM%20Resorts"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22MGM%20Resorts%22"
+# --- Core Functions ---
 
-  - name: "Caesars Entertainment"
-    ticker_us: "CZR"
-    country: "US"
-    category: "operator"
-    allowed_domains: ["investor.caesars.com", "caesars.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://investor.caesars.com/press-releases"
-      - type: "page"
-        url: "https://investor.caesars.com/events/"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=Caesars%20Entertainment"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22Caesars%20Entertainment%22"
+def construct_discovery_queries():
+    """
+    Creates broad search queries to discover recent financial news across the entire sector.
+    """
+    # Combine sector and financial keywords into search strings
+    sector_query_part = " OR ".join([f'"{kw}"' for kw in SECTOR_KEYWORDS])
+    financial_query_part = " OR ".join([f'"{kw}"' for kw in FINANCIAL_NEWS_KEYWORDS])
+    
+    # Restrict search to trusted press wire sites
+    site_query_part = " OR ".join([f'site:{site}' for site in PRESS_WIRE_SITES])
+    
+    # Build the final, powerful query
+    # This looks for documents on specific sites that contain at least one sector keyword
+    # and at least one financial news keyword.
+    final_query = f"({sector_query_part}) AND ({financial_query_part}) AND ({site_query_part})"
+    
+    # We can also create more targeted queries if needed, but one powerful query is often best
+    return [final_query]
 
-  - name: "PENN Entertainment"
-    ticker_us: "PENN"
-    country: "US"
-    category: "operator"
-    allowed_domains: ["pennnationalgaming.gcs-web.com", "pennentertainment.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "rss_page"
-        url: "https://pennnationalgaming.gcs-web.com/rss-feeds"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=PENN%20Entertainment"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22PENN%20Entertainment%22"
+def search_google(query):
+    """
+    Performs a Google search using a simulated API call.
+    In a real-world scenario, you would use a proper API like Google's Custom Search JSON API.
+    This is a placeholder to demonstrate the logic.
+    """
+    print(f"  Executing search: {query}\n")
+    # This is where you would make an actual API call.
+    # To make this functional, you would need to integrate a real search API.
+    # Example using a hypothetical 'google_search' tool:
+    # from google_search import search
+    # return search(queries=[query])
+    #
+    # For this example, we'll return mock data that resembles a real API response.
+    return [
+        {
+            "title": "Vegas Gaming Inc. Reports Record Q2 2024 Financial Results",
+            "link": "https://www.businesswire.com/news/home/20240812123456/en/",
+            "snippet": "Vegas Gaming Inc. (NASDAQ: VGAM) today announced financial results for the second quarter (Q2) ended June 30, 2024, highlighting strong growth in its iGaming division.",
+            "published_date": (datetime.now() - timedelta(days=2)).isoformat(),
+            "source": "businesswire.com"
+        },
+        {
+            "title": "Global Sports Betting Solutions Provides FY24 Guidance Update",
+            "link": "https://www.globenewswire.com/news-release/2024/08/10/12345.html",
+            "snippet": "Global Sports Betting Solutions (OTC: GSBS) has updated its full-year (FY) 2024 guidance following a successful H1 driven by market expansion.",
+            "published_date": (datetime.now() - timedelta(days=4)).isoformat(),
+            "source": "globenewswire.com"
+        }
+    ]
 
-  - name: "Super Group (Betway / Spin)"
-    ticker_us: "SGHC"
-    country: "Global/US"
-    category: "operator"
-    allowed_domains: ["investors.supergroup.com", "globenewswire.com", "businesswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://investors.supergroup.com/news-and-events/press-releases/default.aspx"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22Super%20Group%22"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=%22Super%20Group%22%20OR%20Betway%20OR%20Spin"
+def find_sector_wide_updates():
+    """
+    Finds the latest financial news across the entire iGaming and sports betting sector.
+    """
+    queries = construct_discovery_queries()
+    all_articles = []
+    seen_urls = set()
 
-  - name: "Betsson AB"
-    country: "Sweden"
-    category: "operator"
-    allowed_domains: ["betssonab.com", "globenewswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://www.betssonab.com/newsroom/press-releases"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22Betsson%20AB%22%20OR%20Betsson"
+    for query in queries:
+        try:
+            # In a real implementation, you'd call a real search API here.
+            results = search_google(query) # Using mock data for now
 
-  - name: "Evolution AB"
-    country: "Sweden"
-    category: "supplier"
-    allowed_domains: ["evolution.com", "globenewswire.com", "businesswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://www.evolution.com/investors/press-releases/"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22Evolution%20AB%22%20OR%20%22Evolution%20Gaming%22"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=%22Evolution%20AB%22%20OR%20%22Evolution%20Gaming%22"
+            for result in results:
+                url = result.get("link")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    all_articles.append({
+                        "title": result.get("title", "No Title"),
+                        "url": url,
+                        "snippet": result.get("snippet", "No Snippet"),
+                        "source": result.get("source", "Unknown Source"),
+                        "published": result.get("published_date", "N/A")
+                    })
 
-  - name: "Light & Wonder (LNW)"
-    ticker_us: "LNW"
-    country: "US/Australia"
-    category: "supplier"
-    allowed_domains: ["lnw.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://www.lnw.com/investors"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=%22Light%20%26%20Wonder%22"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22Light%20%26%20Wonder%22%20OR%20LNW"
+        except Exception as e:
+            print(f"  [!] Error searching for query '{query}': {e}")
+            continue
+            
+    return all_articles
 
-  - name: "Playtech plc"
-    country: "UK"
-    category: "supplier"
-    allowed_domains: ["investors.playtech.com", "playtech.com", "businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://www.investors.playtech.com/regulatory-news"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=Playtech"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/Playtech"
 
-  - name: "Kambi Group"
-    country: "Sweden/Malta"
-    category: "supplier"
-    allowed_domains: ["kambi.com", "globenewswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://www.kambi.com/investors/press-releases/"
-      - type: "page"
-        url: "https://www.kambi.com/investors/financial-reports-and-presentations/"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/Kambi"
+# --- Main Execution ---
 
-  - name: "Sportradar"
-    ticker_us: "SRAD"
-    country: "Switzerland/US"
-    category: "data"
-    allowed_domains: ["globenewswire.com", "sportradar.com", "businesswire.com"]
-    watchers:
-      - type: "rss"
-        url: "https://rss.globenewswire.com/rssfeed/organization/bUQ4MtcTvBAjR_cda0el8g%3D%3D"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=Sportradar%20OR%20SRAD"
+if __name__ == "__main__":
+    print("--- iGaming & Sports Betting Financial News Discovery Tool ---")
+    print("Searching for recent financial updates across the sector...\n")
+    
+    articles = find_sector_wide_updates()
+    
+    if articles:
+        print(f"--- Found {len(articles)} recent financial updates ---")
+        # Sort articles by date, newest first
+        for article in sorted(articles, key=lambda x: x.get('published', ''), reverse=True):
+            print(f"\n  📄 Title: {article['title']}")
+            print(f"     Source: {article['source']}")
+            print(f"     Published: {article['published']}")
+            print(f"     URL: {article['url']}")
+            print(f"     Snippet: {article['snippet']}")
+        print("\n" + "="*50)
+    else:
+        print("--- No recent articles found based on the mock data. ---")
 
-  - name: "Genius Sports"
-    ticker_us: "GENI"
-    country: "UK/US"
-    category: "data"
-    allowed_domains: ["investors.geniussports.com", "geniussports.com", "globenewswire.com", "businesswire.com"]
-    watchers:
-      - type: "page"
-        url: "https://investors.geniussports.com/news/default.aspx"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/%22Genius%20Sports%22"
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=%22Genius%20Sports%22%20OR%20GENI"
-
-  # Sector-wide wires (focused)
-  - name: "Sector news wires"
-    category: "aggregator"
-    allowed_domains: ["businesswire.com", "globenewswire.com"]
-    watchers:
-      - type: "wire"
-        url: "https://www.businesswire.com/newsroom?keywords=igaming%20OR%20%22sports%20betting%22%20OR%20casino"
-      - type: "wire"
-        url: "https://www.globenewswire.com/en/search/keyword/igaming%20OR%20%22sports%20betting%22%20OR%20casino"
+    print("\nScript finished.")
