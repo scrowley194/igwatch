@@ -14,7 +14,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12   # small cushion above 600s run timeout
 
     steps:
       - name: Check out
@@ -39,16 +39,17 @@ jobs:
           restore-keys: |
             igwatch-seen-db-${{ runner.os }}-v2-
 
-# Choose runtime params
-if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-  echo "RUN_TIMEOUT=600" >> $GITHUB_ENV      # 10 minutes for manual debug
-  echo "POLL_SECONDS=20" >> $GITHUB_ENV
-  echo "DRY_RUN=${{ inputs.dry_run }}" >> $GITHUB_ENV
-else
-  echo "RUN_TIMEOUT=75" >> $GITHUB_ENV       # keep short on the cron run
-  echo "POLL_SECONDS=60" >> $GITHUB_ENV
-  echo "DRY_RUN=false" >> $GITHUB_ENV
-fi
+      - name: Choose runtime params
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "RUN_TIMEOUT=600" >> $GITHUB_ENV     # 10 minutes for manual debug
+            echo "POLL_SECONDS=20" >> $GITHUB_ENV
+            echo "DRY_RUN=${{ inputs.dry_run }}" >> $GITHUB_ENV
+          else
+            echo "RUN_TIMEOUT=75" >> $GITHUB_ENV      # short on the cron run
+            echo "POLL_SECONDS=60" >> $GITHUB_ENV
+            echo "DRY_RUN=false" >> $GITHUB_ENV
+          fi
 
       - name: Create .env for this run (Gmail)
         run: |
@@ -62,9 +63,23 @@ fi
             echo "SMTP_USER=${{ secrets.SMTP_USER }}"
             echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
             echo "MAIL_FROM=${{ secrets.SMTP_USER }}"
-            echo "MAIL_TO=${{ secrets.SMTP_USER }}"
+            echo "MAIL_TO=${{ secrets.SMTP_USER }}"   # send to same Gmail for testing
             echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: ${{ secrets.SMTP_USER }})"
           } > .env
+
+      # --- TEMP: prove email path works end-to-end ---
+      - name: Smoke test email (temporary)
+        env:
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import os
+          from app.emailers.smtp_oauth import send_plaintext
+          to = os.getenv("MAIL_TO","").split(",")
+          send_plaintext("igwatch smoke test", "This is a test from GitHub Actions.", to)
+          print("Sent smoke test to:", to)
+          PY
+      # -----------------------------------------------
 
       - name: Run watcher (bounded)
         run: |
@@ -85,17 +100,7 @@ fi
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: igwatch-logs
-          path: data/seen.db
-
-          - name: Smoke test email (temporary)
-  env:
-    SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-  run: |
-    python - <<'PY'
-    import os
-    from app.emailers.smtp_oauth import send_plaintext
-    to = os.getenv("MAIL_TO","").split(",")
-    send_plaintext("igwatch smoke test", "This is a test from GitHub Actions.", to)
-    print("Sent smoke test to:", to)
-    PY
+          name: igwatch-artifacts
+          path: |
+            data/seen.db
+            **/*.log
