@@ -9,12 +9,12 @@ on:
         options: ["true", "false"]
         default: "true"
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 * * * *"   # every 5 minutes
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 12   # small cushion above 600s run timeout
+    timeout-minutes: 12   # cushion above 10-min run timeout
 
     steps:
       - name: Check out
@@ -42,11 +42,11 @@ jobs:
       - name: Choose runtime params
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "RUN_TIMEOUT=600" >> $GITHUB_ENV     # 10 minutes for manual debug
+            echo "RUN_TIMEOUT=600" >> $GITHUB_ENV      # 10 minutes for manual debug
             echo "POLL_SECONDS=20" >> $GITHUB_ENV
             echo "DRY_RUN=${{ inputs.dry_run }}" >> $GITHUB_ENV
           else
-            echo "RUN_TIMEOUT=75" >> $GITHUB_ENV      # short on the cron run
+            echo "RUN_TIMEOUT=75" >> $GITHUB_ENV       # short for scheduled run
             echo "POLL_SECONDS=60" >> $GITHUB_ENV
             echo "DRY_RUN=false" >> $GITHUB_ENV
           fi
@@ -63,11 +63,11 @@ jobs:
             echo "SMTP_USER=${{ secrets.SMTP_USER }}"
             echo "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}"
             echo "MAIL_FROM=${{ secrets.SMTP_USER }}"
-            echo "MAIL_TO=${{ secrets.SMTP_USER }}"   # send to same Gmail for testing
+            echo "MAIL_TO=${{ secrets.SMTP_USER }}"
             echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: ${{ secrets.SMTP_USER }})"
           } > .env
 
-      # --- TEMP: prove email path works end-to-end ---
+      # --- TEMP: Smoke test email to confirm SMTP credentials ---
       - name: Smoke test email (temporary)
         env:
           SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -77,11 +77,11 @@ jobs:
           python - <<'PY'
           import os
           from app.emailers.smtp_oauth import send_plaintext
-          to = os.getenv("MAIL_TO","").split(",")
+          to = os.getenv("MAIL_TO", "").split(",")
           send_plaintext("igwatch smoke test", "This is a test from GitHub Actions.", to)
           print("Sent smoke test to:", to)
           PY
-      # -----------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Run watcher (bounded)
         run: |
