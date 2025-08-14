@@ -65,6 +65,7 @@ jobs:
             echo "MAIL_FROM=${{ secrets.SMTP_USER }}"
             echo "MAIL_TO=${{ secrets.SMTP_USER }}"
             echo "SEC_USER_AGENT=NEXT.io Earnings Watcher (contact: ${{ secrets.SMTP_USER }})"
+            echo "ENABLE_EDGAR=false"
           } > .env
 
       # --- TEMP: Smoke test email to confirm SMTP credentials ---
