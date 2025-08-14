@@ -19,28 +19,20 @@ from .config import (
     DRY_RUN,
     MAIL_FROM,
     MAIL_TO,
-    START_FROM_DAYS as CONFIG_START_FROM_DAYS, # Renamed to avoid conflict
+    START_FROM_DAYS as CONFIG_START_FROM_DAYS,
     STRICT_EARNINGS_KEYWORDS,
     ENABLE_EDGAR,
     REQUIRE_NUMBERS,
     GOOD_WIRE_DOMAINS,
-    BLOCK_DOMAINS, # Import the block list
+    BLOCK_DOMAINS,
 )
 
 # --- Run Mode Configuration ---
-# HISTORICAL_RUN: Performs one deep search for past articles and then exits. Perfect for testing.
-# TEST_MODE: Processes a single hardcoded URL.
-# If both are False, runs in continuous polling mode.
 HISTORICAL_RUN = True
-TEST_MODE = False
-
-# Override START_FROM_DAYS for a deeper historical search
 START_FROM_DAYS = 90
-TEST_URL = "https://www.globenewswire.com/news-release/2025/05/08/2877564/0/en/Genius-Sports-Announces-First-Quarter-2025-Financial-Results.html"
-
 
 # --------------------------------------------------------------------
-# Setup & Dynamic Discovery Configuration
+# Setup
 # --------------------------------------------------------------------
 logger = get_logger("igwatch")
 state = State("data/seen.db")
@@ -70,36 +62,27 @@ def utc_ts() -> int:
 
 def construct_discovery_query() -> str:
     """
-    Creates a single, broad search query to discover recent financial news across the entire sector.
+    Creates a targeted search query to find recent financial news from primary sources.
     """
     sector_query_part = " OR ".join([f'"{kw}"' for kw in SECTOR_KEYWORDS])
     financial_query_part = " OR ".join([f'"{kw}"' for kw in FINANCIAL_NEWS_KEYWORDS])
-    
-    # This query searches the entire web.
-    return f"({sector_query_part}) AND ({financial_query_part})"
+
+    # **FIX**: Prioritize primary sources by adding the GOOD_WIRE_DOMAINS to the query.
+    # This tells Google to search for the keywords primarily within these trusted sites.
+    primary_source_sites = " OR ".join([f'site:{site}' for site in GOOD_WIRE_DOMAINS])
+
+    return f"({sector_query_part}) AND ({financial_query_part}) AND ({primary_source_sites})"
 
 def build_watcher(wcfg: dict):
     wtype = wcfg.get("type")
-    if wtype == "rss":
-        return RSSWatcher(wcfg["url"], allowed_domains=wcfg.get("allowed_domains"))
-    if wtype == "rss_page":
-        return RSSPageWatcher(wcfg["url"])
-    if wtype == "page":
-        return PageWatcher(wcfg["url"], allowed_domains=wcfg.get("allowed_domains"))
     if wtype == "gnews":
         return GoogleNewsWatcher(wcfg["query"])
-    if wtype == "edgar_atom":
-        if not ENABLE_EDGAR:
-            return None
-        return EdgarWatcher(wcfg["ticker"])
-    if wtype == "wire":
-        return PressWireWatcher(wcfg["url"])
+    # Other watcher types can be added back here if needed
     raise ValueError(f"Unknown watcher type: {wtype}")
 
 def is_recent(published_ts: int | None) -> bool:
     if not published_ts:
         return True
-    # Use the overridden START_FROM_DAYS for historical runs
     return published_ts >= (utc_ts() - START_FROM_DAYS * 86400)
 
 def is_results_like(title: str) -> bool:
@@ -117,14 +100,13 @@ def _has_numbers(result: dict) -> bool:
     return ok(result.get("revenue")) or ok(result.get("ebitda"))
 
 def is_blocked_domain(url: str) -> bool:
-    """Check if the URL's domain is in the block list."""
     if not BLOCK_DOMAINS:
         return False
     netloc = urlparse(url).netloc.lower()
     return any(netloc == d or netloc.endswith("." + d) for d in BLOCK_DOMAINS)
 
 # --------------------------------------------------------------------
-# Email rendering & Sending (Your original code, unchanged)
+# Email rendering & Sending
 # --------------------------------------------------------------------
 def render_email(company: str, src_url: str, result: dict) -> str:
     lines = [
@@ -135,17 +117,14 @@ def render_email(company: str, src_url: str, result: dict) -> str:
     ]
     cps = result.get("controversial_points") or []
     lines.extend([f"- {c}" for c in cps[:5]] if cps else ["- None detected."])
-
     e, r = result.get("ebitda", {}), result.get("revenue", {})
     def fmt_metric(name: str, d: dict) -> str | None:
         cur, yoy = (d.get("current") or "").strip(), (d.get("yoy") or "").strip()
         if cur.lower() in ("", "not found", "n/a"): return None
         return f"{name}: {cur}" + (f" | YoY {yoy}" if yoy and yoy.lower() != "n/a" else "")
-
     metrics = [m for m in (fmt_metric("Revenue", r), fmt_metric("EBITDA", e)) if m]
     if metrics:
         lines.extend(metrics + [DIV])
-
     lines.append("Geography breakdown (YoY):")
     lines.extend([f"- {g}" for g in result.get("geo_breakdown", [])] or ["- None"])
     lines.append(DIV)
@@ -168,9 +147,7 @@ def send_email(subject: str, body: str):
 # Main loop Functions
 # --------------------------------------------------------------------
 def process_item(item):
-    """Processes a single found item (fetches, summarizes, sends email)."""
     try:
-        # **FIXED LOGIC**: Now we only filter out blocked domains.
         if is_blocked_domain(item.url) or \
            year_guard(item.title, item.url) or \
            not is_recent(item.published_ts) or \
@@ -198,7 +175,6 @@ def process_item(item):
         logger.error("Parse/send error for %s: %s", item.url, e)
 
 def run_historical_mode():
-    """Runs a single, deep discovery search and then exits."""
     logger.info("--- RUNNING IN HISTORICAL DISCOVERY MODE (90 days) ---")
     discovery_query = construct_discovery_query()
     watcher = build_watcher({"type": "gnews", "query": discovery_query})
@@ -214,7 +190,6 @@ def run_historical_mode():
         logger.info("--- HISTORICAL MODE FINISHED ---")
 
 def run_continuous_mode():
-    """Runs the continuous polling loop to discover new articles."""
     discovery_query = construct_discovery_query()
     watcher = build_watcher({"type": "gnews", "query": discovery_query})
     
@@ -234,9 +209,6 @@ def run_continuous_mode():
 if __name__ == "__main__":
     if HISTORICAL_RUN:
         run_historical_mode()
-    elif TEST_MODE:
-        # This mode is now secondary to the historical run for testing
-        pass # Or implement the single URL test logic here if needed
     else:
         try:
             run_continuous_mode()
