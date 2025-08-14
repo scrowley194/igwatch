@@ -19,7 +19,7 @@ from .config import (
     DRY_RUN,
     MAIL_FROM,
     MAIL_TO,
-    START_FROM_DAYS,
+    START_FROM_DAYS as CONFIG_START_FROM_DAYS, # Renamed to avoid conflict
     STRICT_EARNINGS_KEYWORDS,
     ENABLE_EDGAR,
     REQUIRE_NUMBERS,
@@ -27,11 +27,15 @@ from .config import (
     BLOCK_DOMAINS, # Import the block list
 )
 
-# --- Test Mode Configuration ---
-# Set to True to run a one-off test with a real URL.
-# Set to False for normal, continuous operation.
+# --- Run Mode Configuration ---
+# HISTORICAL_RUN: Performs one deep search for past articles and then exits. Perfect for testing.
+# TEST_MODE: Processes a single hardcoded URL.
+# If both are False, runs in continuous polling mode.
+HISTORICAL_RUN = True
 TEST_MODE = False
-# This is a real URL for testing the full pipeline.
+
+# Override START_FROM_DAYS for a deeper historical search
+START_FROM_DAYS = 90
 TEST_URL = "https://www.globenewswire.com/news-release/2025/05/08/2877564/0/en/Genius-Sports-Announces-First-Quarter-2025-Financial-Results.html"
 
 
@@ -95,6 +99,7 @@ def build_watcher(wcfg: dict):
 def is_recent(published_ts: int | None) -> bool:
     if not published_ts:
         return True
+    # Use the overridden START_FROM_DAYS for historical runs
     return published_ts >= (utc_ts() - START_FROM_DAYS * 86400)
 
 def is_results_like(title: str) -> bool:
@@ -160,89 +165,80 @@ def send_email(subject: str, body: str):
         logger.error("SMTP send failed: %s", e)
 
 # --------------------------------------------------------------------
-# Main loop (Rewritten to support Test Mode and Discovery Mode)
+# Main loop Functions
 # --------------------------------------------------------------------
-def run_test_mode():
-    """Executes a single run with a predefined URL to test the full pipeline."""
-    logger.info("--- RUNNING IN TARGETED TEST MODE ---")
-    logger.info("Processing URL: %s", TEST_URL)
-    
+def process_item(item):
+    """Processes a single found item (fetches, summarizes, sends email)."""
     try:
-        title_hint = "Genius Sports Announces First Quarter 2025 Financial Results"
-        company_match = re.match(r"^([\w\s.&,()]+?)(?:\s\(|reports|announces)", title_hint, re.IGNORECASE)
-        email_company_name = company_match.group(1).strip() if company_match else "Unknown Company"
-
-        result = fetch_and_summarize(TEST_URL, title_hint=title_hint)
-        
-        if REQUIRE_NUMBERS and not _has_numbers(result):
-            logger.info("Test item skipped (no numbers found).")
+        # **FIXED LOGIC**: Now we only filter out blocked domains.
+        if is_blocked_domain(item.url) or \
+           year_guard(item.title, item.url) or \
+           not is_recent(item.published_ts) or \
+           not is_results_like(item.title):
             return
 
-        subject = f"[TEST] [{email_company_name}] {result.get('headline','')[:120]}"
-        body = render_email(email_company_name, TEST_URL, result)
-        send_email(subject, body)
-        
-    except Exception as e:
-        logger.error("Targeted test failed: %s", e, exc_info=True)
-    finally:
-        logger.info("--- TEST MODE FINISHED ---")
+        item_id = state.make_id(item.source, item.url, item.title)
+        if state.is_seen(item_id):
+            return
 
-def run_discovery_mode():
+        company_match = re.match(r"^([\w\s.&,()]+?)(?:\s\(|reports|announces)", item.title, re.IGNORECASE)
+        email_company_name = company_match.group(1).strip() if company_match else "Unknown Company"
+
+        result = fetch_and_summarize(item.url, title_hint=item.title)
+        if REQUIRE_NUMBERS and not _has_numbers(result):
+            logger.info("Skipping (no numbers): %s", item.url)
+            return
+        
+        subject = f"[{email_company_name}] {result.get('headline','')[:120]}"
+        body = render_email(email_company_name, item.url, result)
+        send_email(subject, body)
+        state.mark_seen(item_id, utc_ts())
+        time.sleep(0.5)
+    except Exception as e:
+        logger.error("Parse/send error for %s: %s", item.url, e)
+
+def run_historical_mode():
+    """Runs a single, deep discovery search and then exits."""
+    logger.info("--- RUNNING IN HISTORICAL DISCOVERY MODE (90 days) ---")
+    discovery_query = construct_discovery_query()
+    watcher = build_watcher({"type": "gnews", "query": discovery_query})
+    
+    try:
+        found_items = list(watcher.poll())
+        logger.info("Historical query found %d potential articles. Processing...", len(found_items))
+        for item in found_items:
+            process_item(item)
+    except Exception as e:
+        logger.error("Historical discovery watcher failed: %s", e)
+    finally:
+        logger.info("--- HISTORICAL MODE FINISHED ---")
+
+def run_continuous_mode():
     """Runs the continuous polling loop to discover new articles."""
     discovery_query = construct_discovery_query()
-    logger.info("Constructed dynamic discovery query for wide search.")
-
-    virtual_watcher_config = {
-        "watcher_obj": build_watcher({"type": "gnews", "query": discovery_query})
-    }
+    watcher = build_watcher({"type": "gnews", "query": discovery_query})
     
     logger.info(
-        "Running in discovery mode. Poll=%ss DRY_RUN=%s START_FROM_DAYS=%s STRICT=%s",
-        POLL_SECONDS, DRY_RUN, START_FROM_DAYS, STRICT_EARNINGS_KEYWORDS
+        "Running in continuous discovery mode. Poll=%ss DRY_RUN=%s START_FROM_DAYS=%s STRICT=%s",
+        POLL_SECONDS, DRY_RUN, CONFIG_START_FROM_DAYS, STRICT_EARNINGS_KEYWORDS
     )
 
     while True:
-        watcher = virtual_watcher_config["watcher_obj"]
-        
         try:
             for item in watcher.poll():
-                # **FIXED LOGIC**: Now we only filter out blocked domains.
-                if is_blocked_domain(item.url) or \
-                   year_guard(item.title, item.url) or \
-                   not is_recent(item.published_ts) or \
-                   not is_results_like(item.title):
-                    continue
-
-                item_id = state.make_id(item.source, item.url, item.title)
-                if state.is_seen(item_id):
-                    continue
-
-                try:
-                    company_match = re.match(r"^([\w\s.&,()]+?)(?:\s\(|reports|announces)", item.title, re.IGNORECASE)
-                    email_company_name = company_match.group(1).strip() if company_match else "Unknown Company"
-
-                    result = fetch_and_summarize(item.url, title_hint=item.title)
-                    if REQUIRE_NUMBERS and not _has_numbers(result):
-                        logger.info("Skipping (no numbers): %s", item.url)
-                        continue
-                    
-                    subject = f"[{email_company_name}] {result.get('headline','')[:120]}"
-                    body = render_email(email_company_name, item.url, result)
-                    send_email(subject, body)
-                    state.mark_seen(item_id, utc_ts())
-                    time.sleep(0.5)
-                except Exception as e:
-                    logger.error("Parse/send error for %s: %s", item.url, e)
+                process_item(item)
         except Exception as e:
             logger.error("Watcher error for Sector Discovery: %s", e)
-
         time.sleep(POLL_SECONDS)
 
 if __name__ == "__main__":
-    if TEST_MODE:
-        run_test_mode()
+    if HISTORICAL_RUN:
+        run_historical_mode()
+    elif TEST_MODE:
+        # This mode is now secondary to the historical run for testing
+        pass # Or implement the single URL test logic here if needed
     else:
         try:
-            run_discovery_mode()
+            run_continuous_mode()
         except KeyboardInterrupt:
             logger.info("Stopped.")
