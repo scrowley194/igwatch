@@ -125,16 +125,16 @@ companies:
   - type: edgar_atom
     ticker: GENI
 - name: Sector news wires
-    category: aggregator
-    watchers:
-      # Press-wire category/listing pages (examples; swap to the pages you want)
-      - type: wire
-        url: "https://www.businesswire.com/portal/site/home/news/subject/?vnsId=31357"   # Example: Gaming & Lottery (update as needed)
-      - type: wire
-        url: "https://www.globenewswire.com/Search/NewsSearch?sector=Gaming"             # Example: adjust to a valid category url
+  category: aggregator
+  watchers:
+    # Press-wire category/listing pages (examples; swap to the pages you want)
+    - type: wire
+      url: "https://www.businesswire.com/portal/site/home/news/subject/?vnsId=31357"   # Example: Gaming & Lottery (update as needed)
+    - type: wire
+      url: "https://www.globenewswire.com/Search/NewsSearch?sector=Gaming"             # Example: adjust to a valid category url
 
-      # Google News RSS for iGaming/casino earnings
-      - type: gnews
-        query: >
-          ("Q1" OR "Q2" OR "Q3" OR "Q4" OR "quarterly results" OR earnings)
-          (casino OR igaming OR "sports betting" OR "online casino")
+    # Google News RSS for iGaming/casino earnings
+    - type: gnews
+      query: >
+        ("Q1" OR "Q2" OR "Q3" OR "Q4" OR "quarterly results" OR earnings)
+        (casino OR igaming OR "sports betting" OR "online casino")
