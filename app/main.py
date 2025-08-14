@@ -130,6 +130,21 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
 
     return "\n".join(lines)
 
+from .config import REQUIRE_NUMBERS
+
+def _has_numbers(result: Dict) -> bool:
+    def _ok(d): 
+        if not isinstance(d, dict): return False
+        v = (d.get("current") or "").strip().lower()
+        return bool(v) and v not in ("not found","n/a")
+    return _ok(result.get("revenue")) or _ok(result.get("ebitda"))
+
+# ... inside the loop where you parsed `result`:
+if REQUIRE_NUMBERS and not _has_numbers(result):
+    logger.info("Skip email (no numbers found) for %s", item.url)
+    continue
+
+
 # --------------------------------------------------------------------
 # Email sending
 # --------------------------------------------------------------------
