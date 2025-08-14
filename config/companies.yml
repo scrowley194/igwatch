@@ -1,10 +1,9 @@
 companies:
   - name: Flutter Entertainment
     ticker_us: FLUT
-    country: UK / US
+    country: UK/US
     category: operator
-    allowed_domains:
-      - flutter.com
+    allowed_domains: [ "flutter.com", "businesswire.com" ]
     watchers:
       - type: page
         url: https://www.flutter.com/investors/regulatory-news
@@ -14,8 +13,7 @@ companies:
   - name: Entain plc
     country: UK
     category: operator
-    allowed_domains:
-      - entaingroup.com
+    allowed_domains: [ "entaingroup.com", "businesswire.com" ]
     watchers:
       - type: page
         url: https://www.entaingroup.com/investor-relations/regulatory-news/
@@ -23,8 +21,7 @@ companies:
   - name: Evoke plc (ex-888)
     country: UK
     category: operator
-    allowed_domains:
-      - evokeplc.com
+    allowed_domains: [ "evokeplc.com", "businesswire.com" ]
     watchers:
       - type: page
         url: https://www.evokeplc.com/investors/regulatory-news/
@@ -35,9 +32,7 @@ companies:
     ticker_us: DKNG
     country: US
     category: operator
-    allowed_domains:
-      - draftkings.gcs-web.com
-      - businesswire.com
+    allowed_domains: [ "draftkings.gcs-web.com", "businesswire.com" ]
     watchers:
       - type: rss_page
         url: https://draftkings.gcs-web.com/shareholder-services/rss-feeds/
@@ -48,10 +43,7 @@ companies:
     ticker_us: MGM
     country: US
     category: operator
-    allowed_domains:
-      - investors.mgmresorts.com
-      - mgmresorts.com
-      - businesswire.com
+    allowed_domains: [ "investors.mgmresorts.com", "mgmresorts.com", "businesswire.com" ]
     watchers:
       - type: rss_page
         url: https://investors.mgmresorts.com/rss/
@@ -64,10 +56,7 @@ companies:
     ticker_us: CZR
     country: US
     category: operator
-    allowed_domains:
-      - investor.caesars.com
-      - caesars.com
-      - businesswire.com
+    allowed_domains: [ "investor.caesars.com", "caesars.com", "businesswire.com" ]
     watchers:
       - type: page
         url: https://investor.caesars.com/press-releases
@@ -84,9 +73,7 @@ companies:
     ticker_us: PENN
     country: US
     category: operator
-    allowed_domains:
-      - pennnationalgaming.gcs-web.com
-      - businesswire.com
+    allowed_domains: [ "pennnationalgaming.gcs-web.com", "businesswire.com" ]
     watchers:
       - type: rss_page
         url: https://pennnationalgaming.gcs-web.com/rss-feeds
@@ -95,22 +82,19 @@ companies:
 
   - name: Super Group (Betway / Spin)
     ticker_us: SGHC
-    country: Global / US
+    country: Global/US
     category: operator
-    allowed_domains:
-      - investors.supergroup.com
-      - globenewswire.com
+    allowed_domains: [ "investors.supergroup.com", "globenewswire.com" ]
     watchers:
       - type: page
         url: https://investors.supergroup.com/news-and-events/press-releases/default.aspx
       - type: wire
-        url: https://www.globenewswire.com/Search/NewsSearch?keyword=Super%20Group
+        url: https://www.globenewswire.com/en/search/keyword/%22Super%20Group%22
 
   - name: Betsson AB
     country: Sweden
     category: operator
-    allowed_domains:
-      - betssonab.com
+    allowed_domains: [ "betssonab.com" ]
     watchers:
       - type: page
         url: https://www.betssonab.com/newsroom/press-releases
@@ -118,19 +102,16 @@ companies:
   - name: Evolution AB
     country: Sweden
     category: supplier
-    allowed_domains:
-      - evolution.com
+    allowed_domains: [ "evolution.com" ]
     watchers:
       - type: page
         url: https://www.evolution.com/investors/press-releases/
 
   - name: Light & Wonder (LNW)
     ticker_us: LNW
-    country: US / Australia
+    country: US/Australia
     category: supplier
-    allowed_domains:
-      - lnw.com
-      - businesswire.com
+    allowed_domains: [ "lnw.com", "businesswire.com" ]
     watchers:
       - type: page
         url: https://www.lnw.com/investors
@@ -140,18 +121,15 @@ companies:
   - name: Playtech plc
     country: UK
     category: supplier
-    allowed_domains:
-      - investors.playtech.com
-      - playtech.com
+    allowed_domains: [ "investors.playtech.com", "playtech.com", "businesswire.com" ]
     watchers:
       - type: page
         url: https://www.investors.playtech.com/regulatory-news
 
   - name: Kambi Group
-    country: Sweden / Malta
+    country: Sweden/Malta
     category: supplier
-    allowed_domains:
-      - kambi.com
+    allowed_domains: [ "kambi.com" ]
     watchers:
       - type: page
         url: https://www.kambi.com/investors/press-releases/
@@ -160,37 +138,34 @@ companies:
 
   - name: Sportradar
     ticker_us: SRAD
-    country: Switzerland / US
+    country: Switzerland/US
     category: data
-    allowed_domains:
-      - globenewswire.com
-      - sportradar.com
+    allowed_domains: [ "globenewswire.com", "sportradar.com" ]
     watchers:
       - type: rss
         url: https://rss.globenewswire.com/rssfeed/organization/bUQ4MtcTvBAjR_cda0el8g%3D%3D
 
   - name: Genius Sports
     ticker_us: GENI
-    country: UK / US
+    country: UK/US
     category: data
-    allowed_domains:
-      - investors.geniussports.com
-      - globenewswire.com
+    allowed_domains: [ "investors.geniussports.com", "geniussports.com", "globenewswire.com", "businesswire.com" ]
     watchers:
       - type: page
         url: https://investors.geniussports.com/news/default.aspx
         allowed_domains: [ "investors.geniussports.com", "geniussports.com", "businesswire.com", "globenewswire.com" ]
         follow_detail: true
       - type: wire
-        url: https://www.globenewswire.com/Search/NewsSearch?keyword=Genius%20Sports
+        url: https://www.globenewswire.com/en/search/keyword/%22Genius%20Sports%22
 
+  # Optional: sector-wide wires (can be noisy—keep only if you want broad coverage)
   - name: Sector news wires
     category: aggregator
-    allowed_domains:
-      - businesswire.com
-      - globenewswire.com
+    allowed_domains: [ "businesswire.com", "globenewswire.com" ]
     watchers:
+      # Business Wire – Gaming & Lottery subject (category page is steadier than free-text search)
       - type: wire
-        url: https://www.businesswire.com/newsroom?keywords=ENTIRE_RELEASE%3Atrue%3Aigaming
+        url: https://www.businesswire.com/newsroom?keywords=ENTIRE_RELEASE%3Atrueigaming%20OR%20casino%20OR%20%22sports%20betting%22
+      # GlobeNewswire – gaming keywords (tweak if too noisy)
       - type: wire
-        url: https://www.globenewswire.com/en/search/keyword/igaming,igaming%252520quarter
+        url: https://www.businesswire.com/newsroom?keywords=ENTIRE_RELEASE%3Aigaming%20OR%20casino%20OR%20%22sports%20betting%22
