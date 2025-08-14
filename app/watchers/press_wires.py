@@ -1,57 +1,82 @@
 # app/watchers/press_wires.py
-import time, re
+import time
+import urllib.parse as up
 from typing import Iterable, Optional
-from urllib.parse import urljoin, urlparse
+from dataclasses import dataclass
 
-from bs4 import BeautifulSoup
+import feedparser
 from .base import Watcher, FoundItem
-from ..config import GOOD_WIRE_DOMAINS, BLOCK_DOMAINS
 from ..net import make_session
+from ..config import GOOD_WIRE_DOMAINS
 
 SESSION = make_session()
 
-def _host(u: str) -> str:
-    return urlparse(u).netloc.split(":")[0].lower()
+# Small helper to build a GNews RSS query that biases to Business Wire / GlobeNewswire
+def _gnews_rss_query(raw_term: str) -> str:
+    """
+    Accepts either a full BusinessWire/GlobeNewswire search URL or a plain term.
+    Extracts 'searchTerm'/'keyword' if present; otherwise uses raw_term as-is.
+    """
+    # If user passed a full URL (legacy YAML), try to extract the query term
+    try:
+        parsed = up.urlparse(raw_term)
+        q = up.parse_qs(parsed.query)
+        term = q.get("searchTerm", q.get("keyword", [raw_term]))[0]
+    except Exception:
+        term = raw_term
 
-RESULT_HINTS = re.compile(r"(q[1-4]\b|quarter|results|earnings|guidance|interim|half[- ]year|full year)", re.I)
+    # Bias to wires; prefer earnings-y language
+    # You can tune 'when:90d' to your START_FROM_DAYS if you want
+    gq = f'site:businesswire.com OR site:globenewswire.com "{term}" (earnings OR results OR quarter OR FY OR "interim") when:90d'
+    params = {
+        "q": gq,
+        "hl": "en-US",
+        "gl": "US",
+        "ceid": "US:en",
+    }
+    return "https://news.google.com/rss/search?" + up.urlencode(params)
+
+@dataclass
+class _RssItem:
+    title: str
+    link: str
+    published_ts: Optional[int]
+
+def _iter_gnews_items(q_url: str):
+    fp = feedparser.parse(q_url)
+    for e in fp.entries:
+        link = getattr(e, "link", "")
+        title = getattr(e, "title", "") or link
+        ts = None
+        try:
+            ts = int(time.mktime(e.published_parsed)) if getattr(e, "published_parsed", None) else None
+        except Exception:
+            ts = None
+        yield _RssItem(title=title, link=link, published_ts=ts)
+
+def _host(url: str) -> str:
+    from urllib.parse import urlparse
+    return (urlparse(url).netloc or "").lower()
 
 class PressWireWatcher(Watcher):
+    """
+    YAML:
+      - type: wire
+        url: <either the old BusinessWire/GlobeNewswire 'search' URL or just a term like "DraftKings">
+
+    We ignore the HTML search page entirely and query Google News RSS instead.
+    """
     name = "wire"
 
-    def __init__(self, page_url: str, must_include: Optional[str] = None):
-        self.page_url = page_url
-        self.must_include = (must_include or "").lower().strip()
+    def __init__(self, url: str):
+        # Store the original "url" field; we use it as the term
+        self.term_or_url = url
+        self.gnews_url = _gnews_rss_query(url)
 
     def poll(self) -> Iterable[FoundItem]:
-        r = SESSION.get(self.page_url, timeout=(8, 30))
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "lxml")
-        anchors = soup.select("a[href]") or []
-        seen = set()
-
-        for a in anchors:
-            txt = (a.get_text(" ", strip=True) or "")
-            href = a.get("href") or ""
-            if not txt or not href:
+        for it in _iter_gnews_items(self.gnews_url):
+            # Keep only direct links to GOOD_WIRE_DOMAINS
+            h = _host(it.link)
+            if GOOD_WIRE_DOMAINS and not any(h == d or h.endswith("." + d) for d in GOOD_WIRE_DOMAINS):
                 continue
-            url = urljoin(self.page_url, href)
-            h = _host(url)
-            if h in BLOCK_DOMAINS or (h not in GOOD_WIRE_DOMAINS):
-                continue
-            lt = txt.lower()
-            if self.must_include and self.must_include not in lt:
-                continue
-            if not RESULT_HINTS.search(lt) and not RESULT_HINTS.search(href):
-                continue
-            if url in seen:
-                continue
-            seen.add(url)
-            yield FoundItem(self.page_url, txt, url, int(time.time()))
-
-class GoogleNewsWatcher(Watcher):
-    name = "gnews"
-    # (Keep disabled in your YAML to avoid media write-ups.)
-    def __init__(self, query: str):
-        self.query = query
-    def poll(self) -> Iterable[FoundItem]:
-        return []  # Intentionally empty when FIRST_PARTY_ONLY=true
+            yield FoundItem(self.gnews_url, it.title, it.link, it.published_ts or int(time.time()))
