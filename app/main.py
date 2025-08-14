@@ -93,23 +93,24 @@ def render_email(company: str, src_url: str, result: Dict) -> str:
     lines.append("— NEXT.io iGaming Earnings Watcher")
     return "\n".join(lines)
 
+# main.py
+from .emailers import smtp_oauth
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+MAIL_TO = os.getenv("MAIL_TO").split(",") if os.getenv("MAIL_TO") else []
+
 def send_email(subject: str, body: str):
     if DRY_RUN:
-        logger.info("[DRY_RUN] %s\n%s", subject, body)
+        logger.info("[DRY_RUN] Email to %s\nSubject: %s\n\n%s", MAIL_TO, subject, body)
         return
-    # Prefer Graph; fallback to SMTP OAuth
     try:
-        from .emailers.graph_mailer import send_plaintext as graph_send
-        graph_send(subject, body, MAIL_TO)
-        logger.info("Email sent via Graph to %s", MAIL_TO)
+        smtp_oauth.send_plaintext(subject, body, MAIL_TO)
+        logger.info("Email sent successfully via Gmail SMTP.")
     except Exception as e:
-        logger.error("Graph send failed (%s). Falling back to SMTP OAuth...", e)
-        try:
-            from .emailers.smtp_oauth import send_plaintext as smtp_send
-            smtp_send(subject, body, MAIL_TO)
-            logger.info("Email sent via SMTP OAuth to %s", MAIL_TO)
-        except Exception as e2:
-            logger.error("SMTP OAuth send failed: %s", e2)
+        logger.error("SMTP send failed: %s", e)
 
 def main_loop():
     companies = load_companies()
