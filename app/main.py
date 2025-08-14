@@ -3,7 +3,7 @@ import time
 import yaml
 import re
 import logging
-from typing import list, dict
+from typing import List, Dict
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
