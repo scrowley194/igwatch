@@ -13,10 +13,16 @@ from ..net import make_session
 # Session Setup
 # --------------------------------------------------------------------
 SESSION = make_session()
+
+# Enhance headers to better mimic a real browser request. This is the key fix.
 SESSION.headers.update({
     "User-Agent": BROWSER_UA,
-    "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.9"
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "DNT": "1", # Do Not Track Header
 })
 
 # --------------------------------------------------------------------
@@ -115,6 +121,7 @@ def _summarize_pdf(text: str) -> dict:
 # Main Entry
 # --------------------------------------------------------------------
 def fetch_and_summarize(url: str, title_hint: str = "") -> dict:
+    # The SESSION.get call no longer needs headers passed directly, as they are now part of the session.
     r = SESSION.get(url, timeout=35, allow_redirects=True)
     r.raise_for_status()
 
