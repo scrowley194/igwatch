@@ -1,134 +1,117 @@
-import re, io
-from typing import Dict, List, Tuple
-from bs4 import BeautifulSoup
-from pdfminer.high_level import extract_text as pdf_extract_text
+# app/parsers/extract.py
+import re
+from urllib.parse import urlparse
 import requests
+from bs4 import BeautifulSoup
+from pdfminer.high_level import extract_text
+from ..config import BROWSER_UA, GOOD_WIRE_DOMAINS, BLOCK_DOMAINS
 
-CURRENCY = r"\$|€|£"
+SESSION = requests.Session()
+SESSION.headers.update({
+    "User-Agent": BROWSER_UA,
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9"
+})
 
-CONTRO_KEYS = [
-    "guidance", "withdraw", "impairment", "restructur", "investigation",
-    "material weakness", "restatement", "fine", "penalt", "sanction", "tax",
-    "lawsuit", "litigation", "license", "licence", "regulator", "covenant",
-    "going concern", "cyber", "breach", "aml", "responsible gambling",
-    "rgc", "delay", "downgrade", "closure", "write-?down"
-]
+_MONEY = r"(?:[\$£€]\s?\d[\d,]*(?:\.\d+)?\s*(?:million|billion|m|bn)?|\d[\d,]*(?:\.\d+)?\s*(?:million|billion|m|bn))"
+_PCT   = r"(?:\+|\-)?\d+(?:\.\d+)?\s?%"
 
-def _fetch_pdf_text(url: str) -> str:
-    r = requests.get(url, timeout=60, headers={"User-Agent":"NEXT.io Earnings Watcher"})
-    r.raise_for_status()
-    b = io.BytesIO(r.content)
-    return pdf_extract_text(b) or ""
+def _host(u: str) -> str:
+    return urlparse(u).netloc.split(":")[0].lower()
 
-def _html_main_text(html: str, base_url: str) -> str:
-    soup = BeautifulSoup(html, "lxml")
-    for el in soup(["script","style","noscript","header","footer","nav","aside"]):
-        el.decompose()
-    # Prefer article/main/content blocks
-    candidates = soup.select("article, main, .content, #content, .c-article, .news-article, .post, .press-release")
-    if not candidates:
-        candidates = soup.select("section, .container, .wrapper, .content-area")
-    # Choose the node with the most text
-    best = None; best_len = 0
-    for node in candidates or [soup.body or soup]:
-        txt = node.get_text("\n", strip=True)
-        if len(txt) > best_len:
-            best_len = len(txt); best = txt
-    text = best or soup.get_text("\n", strip=True)
-    # collapse extra newlines
-    text = re.sub(r"\n{2,}", "\n", text)
-    return text
+def _canonical_url(soup: BeautifulSoup, fallback: str) -> str:
+    c = soup.find("link", rel="canonical")
+    href = (c.get("href") if c else None) or fallback
+    return href
 
-def _fetch_text(url: str) -> str:
-    # If link is PDF, read it; otherwise read HTML and follow obvious "Download PDF" links once
-    lower = url.lower()
-    if lower.endswith(".pdf"):
-        return _fetch_pdf_text(url)
-    res = requests.get(url, timeout=30, headers={"User-Agent":"NEXT.io Earnings Watcher"})
-    res.raise_for_status()
-    html = res.text
-    soup = BeautifulSoup(html, "lxml")
-    # Try to find a PDF link inside and follow
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "pdf" in href.lower():
-            pdf_url = requests.compat.urljoin(url, href)
-            if pdf_url.lower().endswith(".pdf"):
-                try:
-                    return _fetch_pdf_text(pdf_url)
-                except Exception:
-                    pass
-    return _html_main_text(html, url)
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip())
 
-def _find_number_pair(text: str, label_regex: str) -> Tuple[str,str,str]:
-    curr = prior = yoy = ""
-    # Look for "Adjusted EBITDA" or "EBITDA" etc.
-    reg = re.compile(rf"(?i)({label_regex})[^\n]*?({CURRENCY}\s?\d[\d,\.]*\s?(?:million|bn|b|m)?)")
-    m = reg.search(text)
+def _extract_numbers(text: str) -> dict:
+    # Very simple heuristics for revenue/EBITDA and YoY
+    out = {
+        "revenue": {"current": "Not found", "prior": "Not found", "yoy": "n/a"},
+        "ebitda":  {"current": "Not found", "prior": "Not found", "yoy": "n/a"},
+        "geo_breakdown": [],
+        "product_breakdown": [],
+        "controversial_points": []
+    }
+    t = text
+
+    # revenue
+    m = re.search(r"(?:revenue|net sales|turnover)[^.\n]*?(" + _MONEY + ")", t, flags=re.I)
     if m:
-        curr = m.group(2)
-        span = text[m.end(): m.end()+500]
-        # Prior-year number
-        m2 = re.search(rf"(?i)(?:prior|last|previous|ly|yoy)[^\n\d$€£%]*({CURRENCY}\s?\d[\d,\.]*\s?(?:million|bn|b|m)?)", span)
-        if m2:
-            prior = m2.group(1)
-        # YoY percentage
-        m3 = re.search(r"(?i)([+−\-]?\d{1,3}(?:\.\d+)?\s?%)\s*yoy", span)
-        if m3:
-            yoy = m3.group(1) + " YoY"
-    return curr, prior, yoy
+        out["revenue"]["current"] = _norm(m.group(1))
+    y = re.search(r"(?:revenue)[^.\n]*?(" + _PCT + r")\s*(?:yoy|year[- ]over[- ]year|vs\.?\s*prior)", t, flags=re.I)
+    if y:
+        out["revenue"]["yoy"] = _norm(y.group(1))
 
-def _first_sentences(text: str, n=2) -> str:
-    parts = re.split(r"(?<=[.!?])\s+", text.strip())
-    return " ".join(parts[:n])[:500]
+    # ebitda
+    m = re.search(r"(?:adjusted\s*)?ebitda[^.\n]*?(" + _MONEY + ")", t, flags=re.I)
+    if m:
+        out["ebitda"]["current"] = _norm(m.group(1))
+    y = re.search(r"ebitda[^.\n]*?(" + _PCT + r")\s*(?:yoy|year[- ]over[- ]year|vs\.?\s*prior)", t, flags=re.I)
+    if y:
+        out["ebitda"]["yoy"] = _norm(y.group(1))
 
-def _extract_breakdowns(text: str, kind: str) -> List[str]:
-    lines = []
-    hits = 0
-    for ln in text.splitlines():
-        low = ln.lower()
-        if any(k in low for k in ["us","u.s.","united states","uk","italy","sweden","europe","row","rest of world","canada","australia","latam","germany","spain","france","denmark"]):
-            if re.search(rf"{CURRENCY}\s?\d", ln) or re.search(r"\b\d{{1,3}}%\b", ln):
-                lines.append(ln.strip()); hits += 1
-        if any(k in low for k in ["sportsbook","sports betting","igaming","i-gaming","online casino","casino","poker","bingo","retail","land-based","lottery","interactive","gaming operations"]):
-            if re.search(rf"{CURRENCY}\s?\d", ln) or re.search(r"\b\d{{1,3}}%\b", ln):
-                lines.append(ln.strip()); hits += 1
-        if hits >= 8:
-            break
-    return list(dict.fromkeys(lines))  # de-dup preserve order
+    # geo / product bullets (look for lines with a region/segment + %)
+    for line in t.splitlines():
+        if re.search(r"\b(US|United States|UK|United Kingdom|Europe|Italy|Spain|Germany|Nordics|Canada|Australia|LatAm|APAC)\b", line, re.I) and re.search(_PCT, line):
+            out["geo_breakdown"].append(_norm(line))
+        if re.search(r"\b(OSB|Sportsbook|iCasino|Casino|Retail|B2B|B2C|Gaming|Lottery|Bingo|Poker|Slots|Live Dealer)\b", line, re.I) and re.search(_PCT, line):
+            out["product_breakdown"].append(_norm(line))
 
-def summarize(text: str, title_hint: str = "") -> Dict:
-    headline = title_hint or (text.split("\n",1)[0][:160] if text else "")
-    short = _first_sentences(text, 2)
+    # controversies (very naive keywords)
+    for kw in ["regulatory", "investigation", "fine", "penalty", "data breach", "governance", "restatement"]:
+        if re.search(rf"\b{re.escape(kw)}\b", t, re.I):
+            out["controversial_points"].append(f"Mentions: {kw}")
 
-    # Prefer Adjusted EBITDA if present
-    e_curr, e_prior, e_yoy = _find_number_pair(text, "adjusted\s+ebitda|ebitda")
-    r_curr, r_prior, r_yoy = _find_number_pair(text, "total\s+revenue|revenue|net\s+revenue|net\s+revenues")
+    return out
 
-    # Controversial points (short lines around flagged words)
-    found=[]
-    for ln in text.splitlines():
-        low = ln.lower()
-        if any(k in low for k in CONTRO_KEYS):
-            if 30 <= len(ln) <= 220:
-                found.append(ln.strip())
-        if len(found) >= 5:
-            break
-
-    geo = _extract_breakdowns(text, "geo")
-    prod = _extract_breakdowns(text, "product")
-
+def _summarize_html(url: str, html: str) -> dict:
+    soup = BeautifulSoup(html, "lxml")
+    title = soup.find("h1") or soup.find("title")
+    headline = _norm(title.get_text(" ", strip=True) if title else "")
+    # pick opening summary paragraph or bullets
+    summary = ""
+    p = soup.select_one("article p, main p, .content p, #content p")
+    if p:
+        summary = _norm(p.get_text(" ", strip=True))
+    text = soup.get_text("\n")
+    data = _extract_numbers(text)
     return {
-        "headline": headline.strip() or "Results Update",
-        "short_summary": short or "No summary available.",
-        "controversial_points": found[:5],
-        "ebitda": {"current": e_curr or "Not found", "prior": e_prior or "Not found", "yoy": e_yoy or "YoY n/a"},
-        "revenue": {"current": r_curr or "Not found", "prior": r_prior or "Not found", "yoy": r_yoy or "YoY n/a"},
-        "geo_breakdown": geo or ["Not disclosed in release."],
-        "product_breakdown": prod or ["Not disclosed in release."],
-        "final_thoughts": "Early read: watch OSB/iCasino trajectory, regulation, and supplier order books; refine after full transcript."
+        "headline": headline or "Earnings/Results",
+        "short_summary": summary or "Press release / results page",
+        **data,
+        "final_thoughts": "Early read: watch OSB/iCasino trajectory, regulation, and supplier order books; refine after call transcript."
     }
 
-def fetch_and_summarize(url: str, title_hint: str = "") -> Dict:
-    text = _fetch_text(url)
-    return summarize(text, title_hint)
+def _summarize_pdf(text: str) -> dict:
+    # Same number extraction on the PDF's text
+    data = _extract_numbers(text)
+    # Headline/summary are weaker for PDFs; leave generic if not detected
+    return {
+        "headline": "Results presentation / PDF",
+        "short_summary": "Key figures extracted from PDF.",
+        **data,
+        "final_thoughts": "PDF-only parse; verify against press release for context."
+    }
+
+def fetch_and_summarize(url: str, title_hint: str = "") -> dict:
+    # 1) Fetch with redirects to land on the final URL
+    r = SESSION.get(url, timeout=35, allow_redirects=True)
+    r.raise_for_status()
+    final_url = r.url
+    host = _host(final_url)
+    if host in BLOCK_DOMAINS:
+        raise RuntimeError(f"Blocked domain: {host}")
+
+    ctype = r.headers.get("Content-Type", "").lower()
+    if "application/pdf" in ctype or final_url.lower().endswith(".pdf"):
+        text = extract_text(r.content if isinstance(r.content, (bytes, bytearray)) else None) \
+               if isinstance(r.content, (bytes, bytearray)) else extract_text(final_url)
+        return _summarize_pdf(text)
+
+    # HTML path
+    html = r.text
+    return _summarize_html(final_url, html)
