@@ -1,4 +1,5 @@
 from urllib.parse import urlparse
+from typing import List, Dict
 
 def render_email(company: str, src_url: str, result: Dict) -> str:
     lines = [
