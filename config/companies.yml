@@ -183,6 +183,6 @@ companies:
       - globenewswire.com
     watchers:
       - type: wire
-        url: https://www.businesswire.com/portal/site/home/news/subject/?vnsId=31357
+        url: https://www.businesswire.com/newsroom?keywords=ENTIRE_RELEASE%3Atrue%3Aigaming
       - type: wire
-        url: https://www.globenewswire.com/Search/NewsSearch?sector=Gaming
+        url: https://www.globenewswire.com/en/search/keyword/igaming,igaming%252520quarter
