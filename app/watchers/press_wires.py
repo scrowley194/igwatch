@@ -1,6 +1,6 @@
 # app/watchers/press_wires.py
-import time, email.utils, re
-from typing import Iterable, Optional
+import time, email.utils, re, logging
+from typing import Iterable
 from urllib.parse import urlparse, urljoin, urlencode
 
 import feedparser
@@ -8,12 +8,15 @@ from bs4 import BeautifulSoup
 
 from .base import Watcher, FoundItem
 from ..net import make_session
-from ..config import SCRAPING_API_KEY # Import the API key
+from ..config import SCRAPING_API_KEY
 
 SESSION = make_session()
+logger = logging.getLogger(__name__)
+
 
 def _host(u: str) -> str:
     return urlparse(u).netloc.split(":")[0].lower()
+
 
 # ---------------------------
 # PressWire listing watcher
@@ -42,6 +45,7 @@ class PressWireWatcher(Watcher):
 
         seen = set()
         now_ts = int(time.time())
+        count = 0
         for a in anchors:
             href = a.get("href") or ""
             if not href:
@@ -54,10 +58,13 @@ class PressWireWatcher(Watcher):
                 continue
             seen.add(url)
             title = (a.get_text(" ", strip=True) or url).strip()
+            count += 1
             yield FoundItem(self.listing_url, title, url, now_ts)
+        logger.debug("PressWireWatcher %s yielded %d items", self.listing_url, count)
+
 
 # ---------------------------
-# Google News RSS watcher (Rewritten for reliability in GitHub Actions)
+# Google News RSS watcher
 # ---------------------------
 class GoogleNewsWatcher(Watcher):
     """
@@ -76,35 +83,31 @@ class GoogleNewsWatcher(Watcher):
     def poll(self) -> Iterable[FoundItem]:
         feed_url = self._feed_url()
         feed_content = ""
-        
+
         try:
             if SCRAPING_API_KEY:
-                # **FIX**: Use the proxy with JS rendering enabled and a longer timeout.
-                # This is necessary to solve Google's anti-bot challenges in the GitHub environment.
                 proxy_url = "http://api.scraperapi.com"
                 params = {
-                    "api_key": SCRAPING_API_KEY, 
-                    "url": feed_url, 
+                    "api_key": SCRAPING_API_KEY,
+                    "url": feed_url,
                     "country_code": "us",
-                    "render": "true" # Enable JavaScript rendering
+                    "render": "true",
                 }
-                r = SESSION.get(proxy_url, params=params, timeout=90) # Increased timeout for JS rendering
+                r = SESSION.get(proxy_url, params=params, timeout=90)
                 r.raise_for_status()
                 feed_content = r.text
-            else: # Fallback for local testing
+            else:  # Fallback for local testing
                 r = SESSION.get(feed_url, timeout=20)
                 r.raise_for_status()
                 feed_content = r.text
         except Exception as e:
-            print(f"Failed to fetch Google News RSS feed: {e}")
-            return # Exit if the feed can't be fetched
+            logger.error("Failed to fetch Google News RSS feed: %s", e)
+            return
 
         feed = feedparser.parse(feed_content)
-        
-        for e in feed.entries[:30]:
+        total = 0
+        for e in feed.entries[:100]:  # increased from 30 → 100
             title = (e.get("title") or "").strip()
-            # Yield the original Google News link. The redirect will be handled
-            # by the fetch_and_summarize function, which also uses the proxy.
             link = (e.get("link") or "").strip()
             if not title or not link:
                 continue
@@ -117,4 +120,6 @@ class GoogleNewsWatcher(Watcher):
                 except Exception:
                     ts = None
 
+            total += 1
             yield FoundItem(feed_url, title, link, ts)
+        logger.debug("GoogleNewsWatcher '%s' yielded %d entries", self.query, total)
