@@ -25,37 +25,54 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")  # Gmail App Password
 # User agent for SEC/EDGAR API requests
 SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "NEXT.io Earnings Watcher (contact: stuatnext@gmail.com)")
 
-# config.py (additions)
+# Feature flags / additions
 FIRST_PARTY_ONLY = _bool("FIRST_PARTY_ONLY", "true")
 REQUIRE_NUMBERS = _bool("REQUIRE_NUMBERS", "true")
 ENABLE_EDGAR = _bool("ENABLE_EDGAR", "false")  # default OFF
 
-# NEW: API Key for the web scraping proxy service
+# API Key for the web scraping proxy service
 SCRAPING_API_KEY = os.getenv("SCRAPING_API_KEY")
 
 # Browser-like UA for IR sites that block generic clients
 BROWSER_UA = os.getenv(
     "BROWSER_UA",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
 )
 
 # Minimal allow/block lists (comma-separated envs can override)
-GOOD_WIRE_DOMAINS = set([d.strip().lower() for d in os.getenv(
-    "GOOD_WIRE_DOMAINS",
-    "businesswire.com,globenewswire.com,prnewswire.com,newsfilecorp.com,newsdirect.com"
-).split(",") if d.strip()])
+GOOD_WIRE_DOMAINS = set(
+    d.strip().lower()
+    for d in os.getenv(
+        "GOOD_WIRE_DOMAINS",
+        "businesswire.com,globenewswire.com,prnewswire.com,newsfilecorp.com,newsdirect.com",
+    ).split(",")
+    if d.strip()
+)
 
-# **MODIFIED**: Removed news.google.com and other major news sites from the default block list.
+# Note: news.google.com and other major news sites are intentionally not blocked by default.
 # This allows the script to process links from Google News and follow them to their final destination.
-BLOCK_DOMAINS = set([d.strip().lower() for d in os.getenv(
-    "BLOCK_DOMAINS",
-    # "news.google.com" is removed to allow processing.
-    # Other major news sites (yahoo, bloomberg) are also removed, as they can be valid final destinations.
-    "seekingalpha.com,marketwatch.com,msn.com,thestreet.com,benzinga.com,investopedia.com,"
-    "sportsgrid.com,ainvest.com" # Keeping lower-quality / pure aggregate sites
-).split(",") if d.strip()])
+BLOCK_DOMAINS = set(
+    d.strip().lower()
+    for d in os.getenv(
+        "BLOCK_DOMAINS",
+        # "news.google.com" is removed to allow processing.
+        # Other major news sites (yahoo, bloomberg) are also removed, as they can be valid final destinations.
+        "seekingalpha.com,marketwatch.com,msn.com,thestreet.com,benzinga.com,investopedia.com,"
+        "sportsgrid.com,ainvest.com",
+    ).split(",")
+    if d.strip()
+)
 
-se filters (comma‑separated)
-JUNK_DOMAINS = set(d.strip().lower() for d in os.getenv("JUNK_DOMAINS", "").split(",") if d.strip())
-JUNK_SELECTORS = [s.strip() for s in os.getenv("JUNK_SELECTORS", "").split(",") if s.strip()]
+# Optional noise filters (comma-separated)
+JUNK_DOMAINS = set(
+    d.strip().lower()
+    for d in os.getenv("JUNK_DOMAINS", "").split(",")
+    if d.strip()
+)
+
+JUNK_SELECTORS = [
+    s.strip()
+    for s in os.getenv("JUNK_SELECTORS", "").split(",")
+    if s.strip()
+]
