@@ -118,13 +118,22 @@ def render_email(company: str, src_url: str, result: dict) -> str:
         "Summary:", result.get("short_summary",""), DIV,
     ]
     highlights = result.get("key_highlights") or []
+    # de-dupe & cap in case a site still leaks junk
+    _dedup = []
+    _seen = set()
+    for h in highlights:
+        hh = (h or "").strip()
+        if not hh or hh.lower() in _seen:
+            continue
+        _seen.add(hh.lower())
+        _dedup.append(hh)
+        if len(_dedup) >= MAX_HIGHLIGHTS:
+            break
+    highlights = _dedup
     if highlights:
         lines.append("Key Highlights:")
         lines.extend([f"- {h}" for h in highlights])
         lines.append(DIV)
-    lines.append("Top 5 controversial points:")
-    cps = result.get("controversial_points") or []
-    lines.extend([f"- {c}" for c in cps[:5]] if cps else ["- None detected."])
 
     # metrics
     r, e, n, s = (
