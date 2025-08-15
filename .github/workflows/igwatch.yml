@@ -70,6 +70,10 @@ jobs:
             echo "FIRST_PARTY_ONLY=true"
             echo "SCRAPING_API_KEY=${{ secrets.SCRAPING_API_KEY }}"
             echo "GOOD_WIRE_DOMAINS=businesswire.com,globenewswire.com,prnewswire.com,newsfilecorp.com,newsdirect.com"
+            # Reduce noise from promo/aggregator sites in one go
+            JUNK_DOMAINS=tipranks.com,seekingalpha.com,fool.com,benzinga.com,marketwatch.com,investing.com,yahoo.com
+            # Tighten HTML cleanup without editing code
+            JUNK_SELECTORS=nav,footer,header,aside,script,style,form,.ad,.advert,[class*='ad-'],.promo,.newsletter,.subscribe,.related,.social,.share,.breadcrumbs,.tags,.paywall,.cookie,.disclaimer,#comments
           } > .env
 
       # --- TEMP: Smoke test email to confirm SMTP credentials ---
