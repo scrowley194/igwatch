@@ -55,3 +55,7 @@ BLOCK_DOMAINS = set([d.strip().lower() for d in os.getenv(
     "seekingalpha.com,marketwatch.com,msn.com,thestreet.com,benzinga.com,investopedia.com,"
     "sportsgrid.com,ainvest.com" # Keeping lower-quality / pure aggregate sites
 ).split(",") if d.strip()])
+
+se filters (comma‑separated)
+JUNK_DOMAINS = set(d.strip().lower() for d in os.getenv("JUNK_DOMAINS", "").split(",") if d.strip())
+JUNK_SELECTORS = [s.strip() for s in os.getenv("JUNK_SELECTORS", "").split(",") if s.strip()]
