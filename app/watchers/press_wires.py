@@ -1,5 +1,4 @@
-# app/watchers/press_wires.py
-import time, email.utils, re, logging
+import time, email.utils, logging
 from typing import Iterable
 from urllib.parse import urlparse, urljoin, urlencode
 
@@ -8,33 +7,37 @@ from bs4 import BeautifulSoup
 
 from .base import Watcher, FoundItem
 from ..net import make_session
-from ..config import SCRAPING_API_KEY
+from .. import config as CFG
 
 SESSION = make_session()
 logger = logging.getLogger(__name__)
+
+SCRAPING_API_KEY = getattr(CFG, "SCRAPING_API_KEY", None)
 
 
 def _host(u: str) -> str:
     return urlparse(u).netloc.split(":")[0].lower()
 
 
-# ---------------------------
-# PressWire listing watcher
-# ---------------------------
 class PressWireWatcher(Watcher):
-    """
-    Scrapes a press-wire listing/search page (Business Wire / GlobeNewswire / PR Newswire)
-    and yields article links.
-    """
     name = "wire"
 
     def __init__(self, listing_url: str):
         self.listing_url = listing_url
 
+    def _fetch(self, url: str) -> str:
+        if SCRAPING_API_KEY:
+            proxy = "http://api.scraperapi.com"
+            params = {"api_key": SCRAPING_API_KEY, "url": url, "country_code": "us", "render": "true"}
+            r = SESSION.get(proxy, params=params, timeout=90)
+        else:
+            r = SESSION.get(url, timeout=(10, 30))
+        r.raise_for_status()
+        return r.text
+
     def poll(self) -> Iterable[FoundItem]:
-        res = SESSION.get(self.listing_url, timeout=(10, 30))
-        res.raise_for_status()
-        soup = BeautifulSoup(res.text, "lxml")
+        html = self._fetch(self.listing_url)
+        soup = BeautifulSoup(html, "lxml")
 
         anchors = (
             soup.select('a[href*="businesswire.com/news/"]')
@@ -63,14 +66,7 @@ class PressWireWatcher(Watcher):
         logger.debug("PressWireWatcher %s yielded %d items", self.listing_url, count)
 
 
-# ---------------------------
-# Google News RSS watcher
-# ---------------------------
 class GoogleNewsWatcher(Watcher):
-    """
-    Uses Google News RSS. Fetches the feed via a proxy with JS rendering enabled
-    to bypass blocking, then yields the direct Google News links for processing.
-    """
     name = "gnews"
 
     def __init__(self, query: str):
@@ -82,36 +78,26 @@ class GoogleNewsWatcher(Watcher):
 
     def poll(self) -> Iterable[FoundItem]:
         feed_url = self._feed_url()
-        feed_content = ""
-
         try:
             if SCRAPING_API_KEY:
-                proxy_url = "http://api.scraperapi.com"
-                params = {
-                    "api_key": SCRAPING_API_KEY,
-                    "url": feed_url,
-                    "country_code": "us",
-                    "render": "true",
-                }
-                r = SESSION.get(proxy_url, params=params, timeout=90)
-                r.raise_for_status()
-                feed_content = r.text
-            else:  # Fallback for local testing
+                proxy = "http://api.scraperapi.com"
+                params = {"api_key": SCRAPING_API_KEY, "url": feed_url, "country_code": "us", "render": "true"}
+                r = SESSION.get(proxy, params=params, timeout=90)
+            else:
                 r = SESSION.get(feed_url, timeout=20)
-                r.raise_for_status()
-                feed_content = r.text
+            r.raise_for_status()
+            feed_content = r.text
         except Exception as e:
             logger.error("Failed to fetch Google News RSS feed: %s", e)
             return
 
         feed = feedparser.parse(feed_content)
         total = 0
-        for e in feed.entries[:100]:  # increased from 30 → 100
+        for e in feed.entries[:100]:
             title = (e.get("title") or "").strip()
             link = (e.get("link") or "").strip()
             if not title or not link:
                 continue
-
             ts = None
             pub = e.get("published")
             if pub:
@@ -119,7 +105,6 @@ class GoogleNewsWatcher(Watcher):
                     ts = int(time.mktime(email.utils.parsedate(pub)))
                 except Exception:
                     ts = None
-
             total += 1
             yield FoundItem(feed_url, title, link, ts)
         logger.debug("GoogleNewsWatcher '%s' yielded %d entries", self.query, total)
