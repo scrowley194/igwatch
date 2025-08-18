@@ -28,6 +28,7 @@ from .net_fetchers import http_get, looks_like_botwall, fetch_text_via_jina, BRO
 # --------------------------------------------------------------------
 # Minimal inline State (no separate state.py required)
 # --------------------------------------------------------------------
+
 class State:
     """
     Simple URL de-dup state with atomic JSON persistence.
@@ -47,35 +48,70 @@ class State:
     def save(self) -> None:
         """Atomically write to disk so partial writes don't corrupt the file."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        data = json.dumps(sorted(self._seen))
+        data = json.dumps(sorted(self._seen), ensure_ascii=False)
         with tempfile.NamedTemporaryFile("w", dir=str(self._path.parent), delete=False) as tmp:
-            tmp.write(data)
+            tmp.write(data + "\n")
             tmp_path = Path(tmp.name)
         tmp_path.replace(self._path)
 
     def _load(self) -> None:
+        log = logging.getLogger("igwatch")
         try:
-            if self._path.exists():
-                raw = self._path.read_text().strip()
-                if not raw:
-                    return
-                if raw.startswith("["):
-                    self._seen = set(json.loads(raw))
+            if not self._path.exists():
+                return
+            raw_bytes = self._path.read_bytes()
+            if not raw_bytes:
+                return
+            try:
+                raw = raw_bytes.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                # Legacy/binary file (e.g., old SQLite or corrupted cache) – back it up and start fresh
+                bak = self._path.with_suffix(self._path.suffix + ".bak")
+                try:
+                    self._path.replace(bak)
+                    log.error("State file %s is not UTF-8 text; moved to %s and starting fresh.", self._path, bak)
+                except Exception:
+                    log.exception("Failed to back up non-UTF8 state file %s; starting fresh without backup.", self._path)
+                self._seen = set()
+                return
+
+            if not raw:
+                return
+            if raw[0] in "[{":
+                # JSON array (preferred) or JSON object fallback
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    self._seen = set(map(str, data))
+                elif isinstance(data, dict) and "seen" in data and isinstance(data["seen"], list):
+                    self._seen = set(map(str, data["seen"]))
                 else:
-                    # Backward-compat: allow newline-delimited text
-                    self._seen = set(x for x in raw.splitlines() if x.strip())
+                    log.warning("Unexpected JSON structure in %s; starting fresh.", self._path)
+                    self._seen = set()
+            else:
+                # Backward compat: newline-delimited
+                self._seen = set(x for x in raw.splitlines() if x.strip())
         except Exception:
-            logging.getLogger("igwatch").exception(
-                "Failed to load state from %s; starting fresh.", self._path
-            )
+            logging.getLogger("igwatch").exception("Failed to load state from %s; starting fresh.", self._path)
             self._seen = set()
 
+# --------------------------------------------------------------------
+# Setup (use JSON by default, migrate old .db once)
+# --------------------------------------------------------------------
+DEFAULT_STATE_PATH = os.getenv("STATE_FILE", "data/seen.json")
 
-# --------------------------------------------------------------------
-# Setup
-# --------------------------------------------------------------------
+# one-time migration: if old binary-looking data/seen.db exists but no JSON yet
+_old = Path("data/seen.db")
+_new = Path(DEFAULT_STATE_PATH)
+if _old.exists() and not _new.exists():
+    try:
+        bak = _old.with_suffix(_old.suffix + ".legacy")
+        _old.replace(bak)
+        logging.getLogger("igwatch").warning("Found legacy state at %s; moved to %s.", _old, bak)
+    except Exception:
+        logging.getLogger("igwatch").exception("Could not move legacy state %s; proceeding.", _old)
+
 logger = get_logger("igwatch")
-state = State("data/seen.db")
+state = State(DEFAULT_STATE_PATH)
 DIV = "-" * 72
 
 
