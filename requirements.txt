@@ -8,3 +8,4 @@ msal==1.28.0
 PyYAML==6.0.2
 pdfminer.six==20240706
 python-dotenv==1.0.1
+curl-cffi==0.7.3
