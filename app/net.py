@@ -1,26 +1,55 @@
-# app/net.py
+import re
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from .config import BROWSER_UA
+from urllib.parse import urlparse
 
-def make_session() -> requests.Session:
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": BROWSER_UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Connection": "keep-alive",
-    })
-    retry = Retry(
-        total=3,
-        connect=3,
-        read=3,
-        backoff_factor=0.8,
-        status_forcelist=(403, 408, 429, 500, 502, 503, 504),
-        allowed_methods=frozenset({"GET", "HEAD"})
-    )
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
-    s.mount("http://", adapter)
-    s.mount("https://", adapter)
-    return s
+# Optional: curl_cffi for browser-like TLS
+try:
+    from curl_cffi import requests as curl
+    _HAS_CURL = True
+except Exception:
+    curl = requests  # fallback
+    _HAS_CURL = False
+
+DEFAULT_TIMEOUT = (12, 30)
+
+BOTWALL_SIGNS = re.compile(
+    r"(captcha|verify you are human|access denied|forbidden|"
+    r"cloudflare|akamai|perimeterx|datadome|incapsula|attention required)",
+    re.I,
+)
+
+# Provide a default browser-like UA if config doesn’t have one
+BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+
+
+def http_get(url: str, headers: dict = None, timeout=DEFAULT_TIMEOUT):
+    if headers is None:
+        headers = {"User-Agent": BROWSER_UA}
+
+    if _HAS_CURL:
+        r = curl.get(url, impersonate="chrome", headers=headers, timeout=timeout, allow_redirects=True)
+    else:
+        r = curl.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+
+    r.raise_for_status()
+    final = getattr(r, "url", url)
+    ctype = r.headers.get("content-type", "")
+    return final, r.text, ctype
+
+
+def looks_like_botwall(html: str) -> bool:
+    if not html:
+        return True
+    if len(html) < 800 and BOTWALL_SIGNS.search(html):
+        return True
+    return bool(BOTWALL_SIGNS.search(html))
+
+
+def fetch_text_via_jina(url: str, api_key: str = None, timeout: int = 30) -> str:
+    reader_url = "https://r.jina.ai/" + url
+    headers = {"User-Agent": BROWSER_UA}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    r = requests.get(reader_url, headers=headers, timeout=timeout)
+    r.raise_for_status()
+    return r.text
