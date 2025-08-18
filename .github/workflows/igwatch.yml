@@ -29,8 +29,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          # Explicitly install required packages instead of relying on requirements.txt
-          pip install curl-cffi requests beautifulsoup4 lxml feedparser pyyaml
+          pip install -r requirements.txt
 
       - name: Restore state DB
         uses: actions/cache/restore@v4
