@@ -4,11 +4,11 @@ from urllib.parse import urlparse, parse_qs
 from io import BytesIO
 
 from bs4 import BeautifulSoup
-from pdfminer.high_level import extract_text as pdf_extract_text
+from pdfminer.high_level import extract_text as pdfminer_extract_text
 
 # Import config defensively so new fields are optional
 from .. import config as CFG
-from ..net import make_session
+from ..net_fetchers import make_session  # FIX: net_fetchers is now a single file module
 
 logger = logging.getLogger(__name__)
 SESSION = make_session()
@@ -21,16 +21,19 @@ SCRAPING_API_KEY = getattr(CFG, "SCRAPING_API_KEY", None)
 GOOD_WIRE_DOMAINS = set(getattr(CFG, "GOOD_WIRE_DOMAINS", []))
 BLOCK_DOMAINS = set(getattr(CFG, "BLOCK_DOMAINS", []))
 FIRST_PARTY_ONLY = bool(getattr(CFG, "FIRST_PARTY_ONLY", False))
+# Known aggregators / promo-heavy sites we should not trust for highlights
 JUNK_DOMAINS = set(getattr(CFG, "JUNK_DOMAINS", [
     "tipranks.com", "seekingalpha.com", "fool.com", "benzinga.com",
     "marketwatch.com", "investing.com", "yahoo.com"
 ]))
+# CSS we strip from pages before extracting content
 JUNK_SELECTORS = list(getattr(CFG, "JUNK_SELECTORS", [
     "nav", "footer", "header", "aside", "script", "style", "form",
     "[class*='ad-']", ".ad", ".advert", ".promo", ".social", ".share",
     ".related", ".newsletter", ".subscribe", ".breadcrumbs", ".tags",
     ".paywall", ".cookie", ".disclaimer", "#comments"
 ]))
+# Phrases we refuse in highlights
 SPAM_PHRASES = [
     "TipRanks", "Premium", "subscribe", "sponsored", "advert", "coupon",
     "sign up", "click", "follow us", "read more"
