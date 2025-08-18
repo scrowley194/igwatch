@@ -89,3 +89,41 @@ def parse_from_clean_text(text: str, source_url: str = None) -> dict:
         "short_summary": summary or "Text-only parse",
         "final_url": source_url,
     }
+
+def fetch_and_summarize(url: str, title_hint: str = None) -> dict | None:
+    """
+    Fetch a URL and return a normalized summary dict using the HTML/PDF parsers.
+    Keeps the shape expected by main.process_item().
+    """
+    try:
+        # fetch
+        resp = SESSION.get(url, headers={"User-Agent": BROWSER_UA}, timeout=25, allow_redirects=True)
+        if resp.status_code >= 400:
+            logger.warning("fetch_and_summarize: got %s for %s", resp.status_code, url)
+            return None
+
+        ctype = (resp.headers.get("content-type") or "").lower()
+        is_pdf = "application/pdf" in ctype or url.lower().endswith(".pdf")
+
+        if is_pdf:
+            # parse PDF to text then summarize
+            text = pdf_extract_text(BytesIO(resp.content)) or ""
+            result = parse_from_clean_text(text, source_url=resp.url or url)
+        else:
+            # parse HTML
+            html = resp.text or ""
+            result = parse_from_html(html, source_url=resp.url or url)
+
+        # apply title hint if needed
+        if title_hint and not (result.get("headline") or "").strip():
+            result["headline"] = title_hint
+
+        # always ensure final_url is set
+        result.setdefault("final_url", resp.url or url)
+        return result
+
+    except Exception as e:
+        logger.exception("fetch_and_summarize failed for %s: %s", url, e)
+        # return a minimal record so callers can decide what to do
+        return {"headline": title_hint or "Update", "short_summary": "", "final_url": url}
+
