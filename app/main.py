@@ -1,12 +1,17 @@
+import json
+import logging
+import tempfile
+from pathlib import Path
+from typing import Iterable, List, Set, Tuple
+
 import os
 import time
-import logging
 from datetime import datetime, timezone
 
 # --- Local Imports from your project ---
 from .watchers.press_wires import GoogleNewsWatcher, PressWireWatcher
 from .utils.log import get_logger
-from .utils.state import State
+# from .utils.state import State  # <-- Not needed; inlined below
 from .emailers import smtp_oauth
 from .config import (
     DRY_RUN,
@@ -19,12 +24,60 @@ from .config import (
 from .parsers.extract import fetch_and_summarize
 from .net_fetchers import http_get, looks_like_botwall, fetch_text_via_jina, BROWSER_UA
 
+
+# --------------------------------------------------------------------
+# Minimal inline State (no separate state.py required)
+# --------------------------------------------------------------------
+class State:
+    """
+    Simple URL de-dup state with atomic JSON persistence.
+    File format: JSON array of strings (sorted on write).
+    """
+    def __init__(self, path: str | Path):
+        self._path = Path(path)
+        self._seen: Set[str] = set()
+        self._load()
+
+    def has(self, url: str) -> bool:
+        return url in self._seen
+
+    def add(self, url: str) -> None:
+        self._seen.add(url)
+
+    def save(self) -> None:
+        """Atomically write to disk so partial writes don't corrupt the file."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        data = json.dumps(sorted(self._seen))
+        with tempfile.NamedTemporaryFile("w", dir=str(self._path.parent), delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = Path(tmp.name)
+        tmp_path.replace(self._path)
+
+    def _load(self) -> None:
+        try:
+            if self._path.exists():
+                raw = self._path.read_text().strip()
+                if not raw:
+                    return
+                if raw.startswith("["):
+                    self._seen = set(json.loads(raw))
+                else:
+                    # Backward-compat: allow newline-delimited text
+                    self._seen = set(x for x in raw.splitlines() if x.strip())
+        except Exception:
+            logging.getLogger("igwatch").exception(
+                "Failed to load state from %s; starting fresh.", self._path
+            )
+            self._seen = set()
+
+
 # --------------------------------------------------------------------
 # Setup
 # --------------------------------------------------------------------
 logger = get_logger("igwatch")
 state = State("data/seen.db")
 DIV = "-" * 72
+
 
 # --------------------------------------------------------------------
 # Helpers
@@ -67,20 +120,66 @@ def send_email(subject: str, body: str):
     to = MAIL_TO.split(",") if isinstance(MAIL_TO, str) else MAIL_TO
     smtp_oauth.send_plaintext(subject, body, to, mail_from=MAIL_FROM)
 
+
 # --------------------------------------------------------------------
 # Main Application Logic
 # --------------------------------------------------------------------
 def process_item(url: str, title: str):
     if state.has(url):
+        logger.debug("Already processed: %s", url)
         return
-    result = fetch_and_summarize(url, title_hint=title)
+
+    result = None
+    try:
+        result = fetch_and_summarize(url, title_hint=title)
+    except Exception:
+        logger.exception("fetch_and_summarize failed for %s", url)
+        return
+
     if not result:
+        logger.warning("No result from summarizer for %s", url)
         return
+
     state.add(url)
+
     subject = f"[Earnings Watch] {result.get('headline','Update')}"
     body = render_email(result)
     send_email(subject, body)
     logger.info("Sent email for %s", url)
+
+
+def _iter_items_from_watcher(w) -> Iterable[Tuple[str, str]]:
+    """
+    Safely get (url, title) pairs from a watcher.
+    - If watcher.poll() returns None or raises, return empty iterable.
+    - If any item is malformed, skip it with a warning.
+    """
+    try:
+        items = w.poll()
+    except Exception:
+        logger.exception("Watcher %s.poll() raised", w.__class__.__name__)
+        return []
+
+    if not items:
+        logger.info("Watcher %s returned no items.", w.__class__.__name__)
+        return []
+
+    safe: List[Tuple[str, str]] = []
+    for idx, it in enumerate(items):
+        try:
+            url, title = it
+            if not url:
+                raise ValueError("empty url")
+            safe.append((url, title or ""))
+        except Exception as e:
+            logger.warning(
+                "Watcher %s item[%d] malformed (%s); skipping. Item=%r",
+                w.__class__.__name__,
+                idx,
+                e,
+                it,
+            )
+    return safe
 
 
 def main_loop():
@@ -92,13 +191,17 @@ def main_loop():
     for w in watchers:
         logger.info(DIV)
         logger.info("Checking %s", w.__class__.__name__)
-        try:
-            for url, title in w.poll():
+        for url, title in _iter_items_from_watcher(w):
+            try:
                 process_item(url, title)
-        except Exception as e:
-            logger.exception("Watcher %s failed: %s", w.__class__.__name__, e)
+            except Exception:
+                logger.exception("process_item failed for %s", url)
 
-    state.save()
+    # Persist state without risking a crash
+    try:
+        state.save()
+    except Exception:
+        logger.exception("Failed to persist state")
 
 
 if __name__ == "__main__":
