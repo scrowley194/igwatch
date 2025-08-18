@@ -29,6 +29,8 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
+          pip install curl-cffi
+          pip install requests beautifulsoup4 lxml   # (if your project needs them)
           pip install -r requirements.txt
 
       - name: Restore state DB
