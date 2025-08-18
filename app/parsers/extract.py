@@ -4,11 +4,11 @@ from urllib.parse import urlparse, parse_qs
 from io import BytesIO
 
 from bs4 import BeautifulSoup
-from pdfminer.high_level import extract_text as pdfminer_extract_text
+from pdfminer.high_level import extract_text as pdf_extract_text
 
 # Import config defensively so new fields are optional
 from .. import config as CFG
-from ..net_fetchers import make_session  # FIX: net_fetchers is now a single file module
+from ..net_fetchers import make_session
 
 logger = logging.getLogger(__name__)
 SESSION = make_session()
@@ -21,93 +21,71 @@ SCRAPING_API_KEY = getattr(CFG, "SCRAPING_API_KEY", None)
 GOOD_WIRE_DOMAINS = set(getattr(CFG, "GOOD_WIRE_DOMAINS", []))
 BLOCK_DOMAINS = set(getattr(CFG, "BLOCK_DOMAINS", []))
 FIRST_PARTY_ONLY = bool(getattr(CFG, "FIRST_PARTY_ONLY", False))
-# Known aggregators / promo-heavy sites we should not trust for highlights
-JUNK_DOMAINS = set(getattr(CFG, "JUNK_DOMAINS", [
-    "tipranks.com", "seekingalpha.com", "fool.com", "benzinga.com",
-    "marketwatch.com", "investing.com", "yahoo.com"
-]))
-# CSS we strip from pages before extracting content
-JUNK_SELECTORS = list(getattr(CFG, "JUNK_SELECTORS", [
-    "nav", "footer", "header", "aside", "script", "style", "form",
-    "[class*='ad-']", ".ad", ".advert", ".promo", ".social", ".share",
-    ".related", ".newsletter", ".subscribe", ".breadcrumbs", ".tags",
-    ".paywall", ".cookie", ".disclaimer", "#comments"
-]))
-# Phrases we refuse in highlights
-SPAM_PHRASES = [
-    "TipRanks", "Premium", "subscribe", "sponsored", "advert", "coupon",
-    "sign up", "click", "follow us", "read more"
-]
+JUNK_DOMAINS = set(getattr(CFG, "JUNK_DOMAINS", []))
+JUNK_SELECTORS = list(getattr(CFG, "JUNK_SELECTORS", []))
 
 # -------------------------------
-# Regexes
-# -------------------------------
-_MONEY = r"(?:[\$£€]\s?\d[\d,]*(?:\.\d+)?\s*(?:million|billion|m|bn)?|\d[\d,]*(?:\.\d+)?\s*(?:million|billion|m|bn))"
-_PCT = r"(?:\+|\-)?\d+(?:\.\d+)?\s?%"
-_NUM = r"(?:\+|\-)?\d+(?:\.\d+)?"  # EPS / ratios
-
-# -------------------------------
-# Helpers
-# -------------------------------
-# ... (same helpers as before, unchanged) ...
-
-# -------------------------------
-# HTML & PDF summarizers
+# Helpers (host, normalize, junk strip, etc.)
 # -------------------------------
 
-def _summarize_pdf(url: str, text: str) -> dict:
-    data = _extract_numbers(text)
+def _host(u: str) -> str:
+    try:
+        return urlparse(u).netloc.split(":")[0].lower()
+    except Exception:
+        return ""
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[\s\n]+", " ", (s or "").strip())
+
+
+def _strip_junk(soup: BeautifulSoup) -> BeautifulSoup:
+    for sel in JUNK_SELECTORS:
+        for el in soup.select(sel):
+            el.decompose()
+    return soup
+
+
+def _pick_article_root(soup: BeautifulSoup):
+    for sel in ("article", "main", "#content", ".content", ".article"):
+        el = soup.select_one(sel)
+        if el:
+            return el
+    return soup.body or soup
+
+# -------------------------------
+# Parsers exposed to main.py
+# -------------------------------
+
+def parse_from_html(html: str, source_url: str = None) -> dict:
+    soup = BeautifulSoup(html, "lxml")
+    soup = _strip_junk(soup)
+    article_root = _pick_article_root(soup)
+
+    title_el = article_root.find("h1") or soup.find("h1") or soup.find("title")
+    headline = _norm(title_el.get_text(" ", strip=True) if title_el else "")
+
+    paras = [
+        _norm(p.get_text(" ", strip=True)) for p in article_root.select("p")
+        if len(_norm(p.get_text(" ", strip=True))) > 40
+    ]
+    summary = " ".join(paras[:3])
+
     return {
-        "headline": "Results presentation / PDF",
-        "short_summary": "Key figures extracted from PDF.",
-        "key_highlights": [],
-        "final_url": url,
-        **data,
-        "final_thoughts": "PDF-only parse; verify against press release for context.",
+        "headline": headline or "Earnings/Results",
+        "short_summary": summary or "Press release / results page",
+        "final_url": source_url,
     }
 
-# -------------------------------
-# Entry
-# -------------------------------
 
-def fetch_and_summarize(request_url: str, title_hint: str = "") -> dict | None:
-    if not SCRAPING_API_KEY:
-        raise ValueError("SCRAPING_API_KEY is not set in the environment.")
+def parse_from_clean_text(text: str, source_url: str = None) -> dict:
+    text = (text or "")[:5000]
+    lines = [l.strip() for l in text.splitlines() if len(l.strip()) > 40]
+    headline = lines[0] if lines else "Results summary"
+    summary = " ".join(lines[1:4])
 
-    proxy = "http://api.scraperapi.com"
-    params = {
-        "api_key": SCRAPING_API_KEY,
-        "url": request_url,
-        "country_code": "us",
-        "render": "true",
+    return {
+        "headline": headline,
+        "short_summary": summary or "Text-only parse",
+        "final_url": source_url,
     }
-
-    r = SESSION.get(proxy, params=params, timeout=90)
-    r.raise_for_status()
-
-    ctype = (r.headers.get("Content-Type", "") or "").lower()
-    if "application/pdf" in ctype or request_url.lower().endswith(".pdf"):
-        final_url = _final_url_from_response(r, request_url, None)
-        text = pdf_extract_text(BytesIO(r.content))
-        if is_blocked_domain(final_url):
-            logger.info("Skipping blocked domain (after redirect): %s", final_url)
-            return None
-        return _summarize_pdf(final_url, text)
-
-    # HTML path
-    html = r.text
-    final_url = _final_url_from_response(r, request_url, html)
-
-    if is_blocked_domain(final_url):
-        logger.info("Skipping blocked domain (after redirect): %s", final_url)
-        return None
-    host = _host(final_url)
-
-    if FIRST_PARTY_ONLY and not (_is_wire_or_first_party(host)):
-        logger.info("Skipping non-first-party/press-wire domain due to FIRST_PARTY_ONLY: %s", final_url)
-        return None
-
-    if _is_junk_domain(host):
-        logger.info("Domain flagged as junk for highlights; numeric summary only: %s", final_url)
-
-    return _summarize_html(final_url, html)
