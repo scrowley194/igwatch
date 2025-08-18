@@ -1,4 +1,5 @@
 import re
+import logging
 import requests
 from urllib.parse import urlparse
 
@@ -21,7 +22,25 @@ BOTWALL_SIGNS = re.compile(
 # Provide a default browser-like UA if config doesn’t have one
 BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
+logger = logging.getLogger(__name__)
 
+# -------------------------------
+# Session Factory
+# -------------------------------
+def make_session():
+    """
+    Create and return a curl_cffi (or requests) session with a default User-Agent.
+    """
+    if _HAS_CURL:
+        s = curl.Session()
+    else:
+        s = requests.Session()
+    s.headers.update({"User-Agent": BROWSER_UA})
+    return s
+
+# -------------------------------
+# Fetchers
+# -------------------------------
 def http_get(url: str, headers: dict = None, timeout=DEFAULT_TIMEOUT):
     if headers is None:
         headers = {"User-Agent": BROWSER_UA}
@@ -29,7 +48,7 @@ def http_get(url: str, headers: dict = None, timeout=DEFAULT_TIMEOUT):
     if _HAS_CURL:
         r = curl.get(url, impersonate="chrome", headers=headers, timeout=timeout, allow_redirects=True)
     else:
-        r = curl.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
 
     r.raise_for_status()
     final = getattr(r, "url", url)
