@@ -35,12 +35,6 @@ state = State("data/seen.db")
 DIV = "-" * 72
 
 # --------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------
-# (same helper functions as before...)
-# ... keep unchanged ...
-
-# --------------------------------------------------------------------
 # Fetch + Summarize
 # --------------------------------------------------------------------
 def fetch_and_summarize(url: str, title_hint: str = None):
@@ -66,14 +60,36 @@ def fetch_and_summarize(url: str, title_hint: str = None):
         return None
 
 # --------------------------------------------------------------------
-# Email rendering & Sending
-# --------------------------------------------------------------------
-# (render_email and send_email unchanged)
-
-# --------------------------------------------------------------------
 # Main Application Logic
 # --------------------------------------------------------------------
-# (process_item and main_loop unchanged)
+def process_item(item):
+    url, title = item
+    if state.seen(url):
+        return None
+    logger.info(f"Processing: {title} | {url}")
+    result = fetch_and_summarize(url, title_hint=title)
+    if result:
+        state.mark_seen(url)
+    return result
+
+def main_loop():
+    watchers = [
+        GoogleNewsWatcher(),
+        PressWireWatcher(),
+    ]
+
+    while True:
+        for watcher in watchers:
+            try:
+                for item in watcher.poll():
+                    res = process_item(item)
+                    if res:
+                        logger.info("Got result: %s", res.get("headline"))
+                        # TODO: Add email or storage logic here
+            except Exception as e:
+                logger.error("Watcher error in %s: %s", watcher.__class__.__name__, e)
+
+        time.sleep(60)
 
 if __name__ == "__main__":
     main_loop()
