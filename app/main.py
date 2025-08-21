@@ -1,201 +1,62 @@
-import json
-import logging
-import tempfile
-from pathlib import Path
-from typing import Iterable, List, Set, Tuple
+# app/main.py
+# Orchestrator: run enabled watchers → fetch & parse → format email → send → persist state
+# This is the LAST step, as requested. It wires together all prior building blocks.
 
+from __future__ import annotations
 import os
-import time
-from datetime import datetime, timezone
+import logging
+from pathlib import Path
+from typing import Iterable, List, Tuple
 
-# --- Local Imports from your project ---
-from .watchers.press_wires import GoogleNewsWatcher, PressWireWatcher
 from .utils.log import get_logger
-# from .utils.state import State  # <-- Not needed; inlined below
+from .utils.state import State
 from .emailers import smtp_oauth
-from .config import (
-    DRY_RUN,
-    MAIL_FROM,
-    MAIL_TO,
-    START_FROM_DAYS,
-    USE_JINA_READER_FALLBACK,
-    JINA_API_KEY,
-)
+from .emailers.templates import render_subject, render_body
 from .parsers.extract import fetch_and_summarize
-from .net_fetchers import http_get, looks_like_botwall, fetch_text_via_jina, BROWSER_UA
-
-
-# --------------------------------------------------------------------
-# Minimal inline State (no separate state.py required)
-# --------------------------------------------------------------------
-
-class State:
-    """
-    Simple URL de-dup state with atomic JSON persistence.
-    File format: JSON array of strings (sorted on write).
-    """
-    def __init__(self, path: str | Path):
-        self._path = Path(path)
-        self._seen: Set[str] = set()
-        self._load()
-
-    def has(self, url: str) -> bool:
-        return url in self._seen
-
-    def add(self, url: str) -> None:
-        self._seen.add(url)
-
-    def save(self) -> None:
-        """Atomically write to disk so partial writes don't corrupt the file."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        data = json.dumps(sorted(self._seen), ensure_ascii=False)
-        with tempfile.NamedTemporaryFile("w", dir=str(self._path.parent), delete=False) as tmp:
-            tmp.write(data + "\n")
-            tmp_path = Path(tmp.name)
-        tmp_path.replace(self._path)
-
-    def _load(self) -> None:
-        log = logging.getLogger("igwatch")
-        try:
-            if not self._path.exists():
-                return
-            raw_bytes = self._path.read_bytes()
-            if not raw_bytes:
-                return
-            try:
-                raw = raw_bytes.decode("utf-8").strip()
-            except UnicodeDecodeError:
-                # Legacy/binary file (e.g., old SQLite or corrupted cache) – back it up and start fresh
-                bak = self._path.with_suffix(self._path.suffix + ".bak")
-                try:
-                    self._path.replace(bak)
-                    log.error("State file %s is not UTF-8 text; moved to %s and starting fresh.", self._path, bak)
-                except Exception:
-                    log.exception("Failed to back up non-UTF8 state file %s; starting fresh without backup.", self._path)
-                self._seen = set()
-                return
-
-            if not raw:
-                return
-            if raw[0] in "[{":
-                # JSON array (preferred) or JSON object fallback
-                data = json.loads(raw)
-                if isinstance(data, list):
-                    self._seen = set(map(str, data))
-                elif isinstance(data, dict) and "seen" in data and isinstance(data["seen"], list):
-                    self._seen = set(map(str, data["seen"]))
-                else:
-                    log.warning("Unexpected JSON structure in %s; starting fresh.", self._path)
-                    self._seen = set()
-            else:
-                # Backward compat: newline-delimited
-                self._seen = set(x for x in raw.splitlines() if x.strip())
-        except Exception:
-            logging.getLogger("igwatch").exception("Failed to load state from %s; starting fresh.", self._path)
-            self._seen = set()
-
-# --------------------------------------------------------------------
-# Setup (use JSON by default, migrate old .db once)
-# --------------------------------------------------------------------
-DEFAULT_STATE_PATH = os.getenv("STATE_FILE", "data/seen.json")
-
-# one-time migration: if old binary-looking data/seen.db exists but no JSON yet
-_old = Path("data/seen.db")
-_new = Path(DEFAULT_STATE_PATH)
-if _old.exists() and not _new.exists():
-    try:
-        bak = _old.with_suffix(_old.suffix + ".legacy")
-        _old.replace(bak)
-        logging.getLogger("igwatch").warning("Found legacy state at %s; moved to %s.", _old, bak)
-    except Exception:
-        logging.getLogger("igwatch").exception("Could not move legacy state %s; proceeding.", _old)
+from .watchers.sec_edgar import SecEdgarWatcher
+from .watchers.rns_lse import RnsLseWatcher
+from .watchers.ir_sources import IrSourcesWatcher
 
 logger = get_logger("igwatch")
-state = State(DEFAULT_STATE_PATH)
 DIV = "-" * 72
 
+# ------------------------------ Env utils ------------------------------
 
-# --------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------
-def render_email(item: dict) -> str:
-    """Render a dict result into a plaintext email body."""
-    lines = [
-        f"Headline: {item.get('headline','')}",
-        f"URL: {item.get('final_url','')}",
-        "",
-        f"Summary: {item.get('short_summary','')}",
-        "",
-        "Key Highlights:",
-    ]
-    for h in item.get("key_highlights", []):
-        lines.append(f" - {h}")
-    lines.append("")
-
-    metrics = []
-    for k in ["revenue", "ebitda", "net_income", "eps"]:
-        v = item.get(k, {})
-        if isinstance(v, dict):
-            metrics.append(f"{k.upper()}: {v.get('current','')} (YoY: {v.get('yoy','')})")
-    if metrics:
-        lines.append("Metrics:")
-        lines.extend([" - " + m for m in metrics])
-
-    if item.get("final_thoughts"):
-        lines.append("")
-        lines.append("Notes: " + item["final_thoughts"])
-
-    return "\n".join(lines)
+def _truthy(name: str, default: bool = False) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def send_email(subject: str, body: str):
-    """Send email using smtp_oauth, unless DRY_RUN is set."""
-    if DRY_RUN:
+def _get_env_list(name: str) -> List[str]:
+    raw = os.getenv(name, "")
+    return [x.strip() for x in raw.split(",") if x.strip()]
+
+
+# ------------------------------ Email ---------------------------------
+
+def _send_email(subject: str, body: str) -> None:
+    if _truthy("DRY_RUN", False):
         logger.info("[DRY RUN] Would send email: %s\n%s", subject, body)
         return
-    to = MAIL_TO.split(",") if isinstance(MAIL_TO, str) else MAIL_TO
-    smtp_oauth.send_plaintext(subject, body, to, mail_from=MAIL_FROM)
-
-
-# --------------------------------------------------------------------
-# Main Application Logic
-# --------------------------------------------------------------------
-def process_item(url: str, title: str):
-    if state.has(url):
-        logger.debug("Already processed: %s", url)
+    mail_to = _get_env_list("MAIL_TO")
+    mail_from = os.getenv("MAIL_FROM")
+    if not mail_to:
+        logger.warning("MAIL_TO not set; skipping email send. Subject=%s", subject)
         return
+    smtp_oauth.send_plaintext(subject, body, mail_to, mail_from=mail_from)
 
-    result = None
-    try:
-        result = fetch_and_summarize(url, title_hint=title)
-    except Exception:
-        logger.exception("fetch_and_summarize failed for %s", url)
-        return
 
-    if not result:
-        logger.warning("No result from summarizer for %s", url)
-        return
-
-    state.add(url)
-
-    subject = f"[Earnings Watch] {result.get('headline','Update')}"
-    body = render_email(result)
-    send_email(subject, body)
-    logger.info("Sent email for %s", url)
-
+# ------------------------------ Process --------------------------------
 
 def _iter_items_from_watcher(w) -> Iterable[Tuple[str, str]]:
-    """
-    Safely get (url, title) pairs from a watcher.
-    - If watcher.poll() returns None or raises, return empty iterable.
-    - If any item is malformed, skip it with a warning.
-    """
+    """Guarded poll that yields (url, title) pairs or nothing on error."""
     try:
         items = w.poll()
     except Exception:
         logger.exception("Watcher %s.poll() raised", w.__class__.__name__)
         return []
-
     if not items:
         logger.info("Watcher %s returned no items.", w.__class__.__name__)
         return []
@@ -210,34 +71,92 @@ def _iter_items_from_watcher(w) -> Iterable[Tuple[str, str]]:
         except Exception as e:
             logger.warning(
                 "Watcher %s item[%d] malformed (%s); skipping. Item=%r",
-                w.__class__.__name__,
-                idx,
-                e,
-                it,
+                w.__class__.__name__, idx, e, it,
             )
     return safe
 
 
- def main_loop():
--    watchers = [
--        GoogleNewsWatcher(start_days=START_FROM_DAYS),
--        PressWireWatcher(start_days=START_FROM_DAYS),
--    ]
-+    watchers = [
-+        GoogleNewsWatcher(start_days=START_FROM_DAYS),
-+        PressWireWatcher(start_days=START_FROM_DAYS),
-+    ]
-+
-+    if os.getenv("ENABLE_EDGAR", "").lower() == "true":
-+        logger.info("ENABLE_EDGAR=true → adding SecEdgarWatcher")
-+        watchers.append(SecEdgarWatcher(start_days=START_FROM_DAYS))
+def process_item(state: State, url: str, title: str) -> None:
+    if state.has(url):
+        logger.debug("Already processed: %s", url)
+        return
 
-     for w in watchers:
-         logger.info(DIV)
-         logger.info("Checking %s", w.__class__.__name__)
-         for url, title in _iter_items_from_watcher(w):
-             try:
-                 process_item(url, title)
-             except Exception:
-                 logger.exception("process_item failed for %s", url)
-    main_loop()
+    payload = None
+    try:
+        payload = fetch_and_summarize(url, title_hint=title)
+    except Exception:
+        logger.exception("fetch_and_summarize failed for %s", url)
+        return
+
+    if not payload:
+        logger.warning("No payload for %s", url)
+        return
+
+    subject = render_subject(payload)
+    body = render_body(payload)
+
+    try:
+        _send_email(subject, body)
+    except Exception:
+        logger.exception("Email send failed for %s", url)
+        return
+
+    # Only mark as seen after successful send (or DRY_RUN logging)
+    state.add(url)
+    logger.info("Sent email for %s", url)
+
+
+# ------------------------------ Main -----------------------------------
+
+def main() -> None:
+    # State file (JSON); migrate old .db once
+    state_path = Path(os.getenv("STATE_FILE", "data/seen.json"))
+    legacy = Path("data/seen.db")
+    if legacy.exists() and not state_path.exists():
+        try:
+            bak = legacy.with_suffix(legacy.suffix + ".legacy")
+            legacy.replace(bak)
+            logger.warning("Found legacy state at %s; moved to %s.", legacy, bak)
+        except Exception:
+            logger.exception("Could not move legacy state %s; proceeding.", legacy)
+
+    state = State(state_path)
+
+    # Build watcher list based on env toggles (all default to true)
+    start_days = int(os.getenv("START_FROM_DAYS", "90"))
+    watchers: List[object] = []
+
+    if _truthy("ENABLE_EDGAR", True):
+        watchers.append(SecEdgarWatcher(start_days=start_days))
+    if _truthy("ENABLE_LSE", True):
+        watchers.append(RnsLseWatcher(start_days=start_days))
+    if _truthy("ENABLE_IR", True):
+        watchers.append(IrSourcesWatcher(start_days=start_days))
+
+    if not watchers:
+        logger.warning("No watchers enabled. Set ENABLE_EDGAR/LSE/IR=true to enable sources.")
+        return
+
+    seen_this_run: set[str] = set()
+
+    for w in watchers:
+        logger.info(DIV)
+        logger.info("Checking %s", w.__class__.__name__)
+        for url, title in _iter_items_from_watcher(w):
+            if url in seen_this_run:
+                continue
+            seen_this_run.add(url)
+            try:
+                process_item(state, url, title)
+            except Exception:
+                logger.exception("process_item failed for %s", url)
+
+    # Persist state
+    try:
+        state.save()
+    except Exception:
+        logger.exception("Failed to persist state")
+
+
+if __name__ == "__main__":
+    main()
