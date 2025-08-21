@@ -1,57 +1,51 @@
 # app/emailers/templates.py
-# Email body/subject helpers used by the orchestrator after parsing.
-# Standalone utility (does not send email); integrates with your existing smtp_oauth.
+"""
+Email rendering templates for igwatch.
+Converts the parsed payload dict into subject/body text.
+"""
 
 from __future__ import annotations
-from typing import Dict, List
-
-SUBJECT_PREFIX = "[Earnings Watch]"
+from typing import Dict, Any
 
 
-def _fmt_metric(name: str, m: dict | None) -> str:
-    if not m:
-        return ""
-    parts: List[str] = []
-    cur = m.get("current")
-    yoy = m.get("yoy")
-    if cur:
-        parts.append(str(cur))
-    if yoy:
-        parts.append(f"YoY: {yoy}")
-    return f"{name.upper()}: " + ", ".join(parts) if parts else ""
+def render_subject(payload: Dict[str, Any]) -> str:
+    """Return an email subject line for a parsed report payload."""
+    base = payload.get("headline") or payload.get("title") or "Update"
+    return f"[Earnings Watch] {base}"
 
 
-def render_subject(payload: Dict[str, object]) -> str:
-    headline = str(payload.get("headline") or "Update")
-    return f"{SUBJECT_PREFIX} {headline}"
+def render_body(payload: Dict[str, Any]) -> str:
+    """Return the plaintext email body with summary + highlights."""
+    lines: list[str] = []
 
-
-def render_body(payload: Dict[str, object]) -> str:
-    lines: List[str] = []
     lines.append(f"Headline: {payload.get('headline','')}")
     lines.append(f"URL: {payload.get('final_url','')}")
     lines.append("")
-    lines.append(f"Summary: {payload.get('short_summary','')}")
-    lines.append("")
+    if payload.get("short_summary"):
+        lines.append("Summary:")
+        lines.append(payload["short_summary"])
+        lines.append("")
 
-    # Highlights
-    highs = payload.get("key_highlights") or []
-    if highs:
+    if payload.get("key_highlights"):
         lines.append("Key Highlights:")
-        for h in highs:
+        for h in payload["key_highlights"]:
             lines.append(f" - {h}")
         lines.append("")
 
-    # Metrics (respect the keys used by extract.py)
-    for key in ("revenue", "ebitda", "net_income", "eps"):
-        s = _fmt_metric(key, payload.get(key))
-        if s:
-            lines.append(s)
-
-    # Optional notes
-    ft = payload.get("final_thoughts")
-    if ft:
+    # Common metrics (if parser extracted them)
+    metrics = []
+    for k in ["revenue", "ebitda", "net_income", "eps"]:
+        v = payload.get(k, {})
+        if isinstance(v, dict):
+            metrics.append(f"{k.upper()}: {v.get('current','')} (YoY: {v.get('yoy','')})")
+    if metrics:
+        lines.append("Metrics:")
+        for m in metrics:
+            lines.append(f" - {m}")
         lines.append("")
-        lines.append(f"Notes: {ft}")
 
-    return "\n".join(lines) + "\n"
+    if payload.get("final_thoughts"):
+        lines.append("Notes:")
+        lines.append(payload["final_thoughts"])
+
+    return "\n".join(lines)
