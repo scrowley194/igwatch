@@ -1,184 +1,244 @@
 # app/watchers/rns_lse.py
-# RNS watcher for London-listed companies — yields (url, title) for results/trading updates.
-# No edits to main yet. We'll wire later.
+# London Stock Exchange RNS watcher (primary-source company notices)
+# Produces (url, title) pairs for results/trading updates within a lookback window.
+# Standalone: no edits to main yet. Wire later alongside other watchers.
 
 from __future__ import annotations
 import os
 import re
 import time
 import logging
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Optional
 from datetime import datetime, timedelta, timezone
 
 import requests
-from bs4 import BeautifulSoup as BS
+from bs4 import BeautifulSoup
 
 LOG = logging.getLogger("igwatch")
 
-# Base endpoints
-LSE_NEWS_LIST = "https://www.londonstockexchange.com/news"
-LSE_COMP_NEWS = "https://www.londonstockexchange.com/stock/{epic}/company-news"
-
-# Titles/text we consider relevant to results/financials
-RESULT_PATTERNS = re.compile(
-    r"(results|interim|half[-\s]?year|half[-\s]?yr|final results|preliminary|trading update|Q[1-4]|quarter|H[12]|FY|annual report|interims)",
+# ------------------------- Config & Defaults -------------------------
+DEFAULT_KEYWORDS = re.compile(
+    r"(interim|half[-\s]?year|halfyear|h1|h2|q[1-4]|quarter|trading update|results|preliminary|full[-\s]?year|fy)",
     re.I,
 )
-
-# Some issuers use RNS categories; keep these if available
-GOOD_CATEGORIES = {
-    "Half-year Report",
-    "Annual Financial Report",
-    "Quarterly Results",
-    "Trading Update",
-    "Holding(s) in Company",  # optional; sometimes trading updates ride along
-    "Miscellaneous",
-}
-
-DEFAULT_LOOKBACK_DAYS = int(os.getenv("START_FROM_DAYS", "90"))
-DEFAULT_TIMEOUT = 30
-POLITE_DELAY = 0.3
-
-UA = os.getenv("LSE_USER_AGENT") or os.getenv("SEC_USER_AGENT") or "igwatch (contact: support@example.com)"
+LSE_BASE = "https://www.londonstockexchange.com"
 
 
-class RnsLseWatcher:
-    """
-    Polls LSE RNS pages for a set of EPICs (tickers) and yields (url, title).
+class _Http:
+    """Polite HTTP client with retry/backoff for LSE pages."""
 
-    Env configuration (wire later):
-      - LSE_EPICS=FLTR,ENT,888,BRAG,FDJ (comma-separated EPICs)
-      - START_FROM_DAYS=90 (lookback)
-      - LSE_USER_AGENT=... (optional; falls back to SEC_USER_AGENT)
-    """
-
-    def __init__(self, epics: List[str] | None = None, start_days: int | None = None):
-        self.epics = epics or self._epics_from_env()
-        self.start_days = int(start_days if start_days is not None else DEFAULT_LOOKBACK_DAYS)
+    def __init__(self, ua: Optional[str] = None, max_retries: int = 5, polite_delay: float = 0.25):
         self.s = requests.Session()
         self.s.headers.update({
-            "User-Agent": UA,
+            "User-Agent": ua or os.getenv("LSE_USER_AGENT") or os.getenv("SEC_USER_AGENT") or "igwatch (contact: support@example.com)",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Encoding": "gzip, deflate",
             "Connection": "keep-alive",
         })
+        self.max_retries = max_retries
+        self.polite_delay = polite_delay
 
-    def _epics_from_env(self) -> List[str]:
-        env = os.getenv("LSE_EPICS", "")
-        return [x.strip().upper() for x in env.split(",") if x.strip()]
-
-    # ---- Public API (matches your pattern) ----
-    def poll(self) -> List[Tuple[str, str]]:
-        if not self.epics:
-            LOG.info("RnsLseWatcher: no EPICs configured (LSE_EPICS).")
-            return []
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.start_days)
-        out: List[Tuple[str, str]] = []
-        for epic in self.epics:
-            try:
-                out.extend(self._poll_epic(epic, cutoff))
-            except Exception as e:  # pragma: no cover
-                LOG.exception("RNS LSE: failed for %s (%s)", epic, e)
-        return out
-
-    # ---- Internal helpers ----
-    def _poll_epic(self, epic: str, cutoff: datetime) -> List[Tuple[str, str]]:
-        url = LSE_COMP_NEWS.format(epic=epic)
-        html = self._get(url)
-        soup = BS(html, "lxml")
-
-        # LSE uses cards/rows; we probe various selectors for robustness
-        items = []
-        items.extend(soup.select("article a[href*='/news-article/']"))
-        items.extend(soup.select(".news__item a[href*='/news-article/']"))
-        items.extend(soup.select("a[href*='/news-article/']"))
-
-        seen_links = set()
-        results: List[Tuple[str, str]] = []
-
-        for a in items:
-            href = a.get("href") or ""
-            if "/news-article/" not in href:
+    def get(self, url: str, **kw) -> requests.Response:
+        backoff = 0.5
+        last = None
+        for _ in range(self.max_retries):
+            r = self.s.get(url, timeout=30, **kw)
+            if r.status_code in (403, 429):
+                sleep = float(r.headers.get("Retry-After") or backoff)
+                LOG.debug("LSE backoff %ss for %s (%s)", sleep, url, r.status_code)
+                time.sleep(sleep)
+                backoff = min(backoff * 2, 8.0)
+                last = r
                 continue
-            if href in seen_links:
-                continue
-            seen_links.add(href)
+            r.raise_for_status()
+            time.sleep(self.polite_delay)
+            return r
+        if last is not None:
+            last.raise_for_status()
+        raise RuntimeError("LSE request failed and no response to raise")
 
-            title = (a.get_text() or "").strip()
-            if not title:
-                # try parent text if anchor empty
-                parent = a.find_parent(["article", "li", "div"]) or a.parent
-                title = (parent.get_text(" ", strip=True) or "").strip()
 
-            # Find closest date text near the card
-            date = self._extract_date_near(a)
-            if date and date < cutoff:
-                continue
+# ------------------------- Parsing helpers -------------------------
 
-            if not (RESULT_PATTERNS.search(title or "") or self._category_good(a)):
-                continue
+def _abs_url(href: str) -> str:
+    if href.startswith("http"):
+        return href
+    if not href.startswith("/"):
+        href = "/" + href
+    return LSE_BASE + href
 
-            full_url = self._absolutize(href)
-            results.append((full_url, f"RNS {epic}: {title}"))
 
-        time.sleep(POLITE_DELAY)
-        return results
-
-    def _absolutize(self, href: str) -> str:
-        if href.startswith("http"):
-            return href
-        return f"https://www.londonstockexchange.com{href}"
-
-    def _get(self, url: str) -> str:
-        r = self.s.get(url, timeout=DEFAULT_TIMEOUT)
-        if r.status_code in (403, 429):
-            # Gentle backoff/retry once; LSE can rate-limit
-            time.sleep(1.0)
-            r = self.s.get(url, timeout=DEFAULT_TIMEOUT)
-        r.raise_for_status()
-        return r.text
-
-    def _category_good(self, a) -> bool:
-        # Sometimes the category appears as a sibling span or within the card
-        txt = " ".join(x.get_text(" ", strip=True) for x in a.parents if getattr(x, "get_text", None))
-        for cat in GOOD_CATEGORIES:
-            if cat.lower() in txt.lower():
-                return True
-        return False
-
-    def _extract_date_near(self, a) -> datetime | None:
-        # Look for sibling/parent date nodes (common LSE patterns)
-        candidates = []
-        # sibling time/date tags
-        candidates += a.find_all_next(["time", "span"], limit=3)
-        # parent-contained
-        parent = a.find_parent(["article", "li", "div"]) or a.parent
-        if parent:
-            candidates += parent.find_all(["time", "span", "p"], limit=5)
-        for el in candidates:
-            t = (el.get("datetime") or el.get_text(" ", strip=True) or "").strip()
-            dt = self._parse_date(t)
-            if dt:
-                return dt
-        return None
-
-    def _parse_date(self, s: str) -> datetime | None:
-        s = s.strip()
-        if not s:
-            return None
-        # Try ISO first (often in <time datetime="...")
+def _parse_date(text: str) -> Optional[datetime]:
+    text = (text or "").strip()
+    # Common formats seen on LSE (examples): "21 Aug 2025 07:00"
+    for fmt in ("%d %b %Y %H:%M", "%d %b %Y", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d"):
         try:
-            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            dt = datetime.strptime(text, fmt)
             if not dt.tzinfo:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc)
-        except Exception:
-            pass
-        # Common UK date like "21 August 2025" or "21 Aug 2025"
-        for fmt in ("%d %B %Y", "%d %b %Y", "%d/%m/%Y"):
-            try:
-                dt = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
-                return dt
-            except Exception:
+        except ValueError:
+            continue
+    return None
+
+
+def _extract_items_from_list_html(html: str, epic: str) -> List[Tuple[str, str, Optional[datetime]]]:
+    """Return list of (url, title, date) from an LSE company news list page."""
+    soup = BeautifulSoup(html, "lxml")
+
+    # Strategy 1: anchor cards that link to /news-article/{EPIC}/...
+    anchors = soup.select(f'a[href*="/news-article/{epic.upper()}/"], a[href*="/news-article/{epic.lower()}/"]')
+    out: List[Tuple[str, str, Optional[datetime]]] = []
+
+    for a in anchors:
+        href = a.get("href") or ""
+        title = a.get_text(strip=True)
+        if not href or not title:
+            continue
+        url = _abs_url(href)
+
+        # Try to find a nearby date element
+        date_txt = None
+        parent = a.parent
+        for _ in range(4):  # climb up a few levels looking for a time/date element
+            if not parent:
+                break
+            time_el = parent.find("time")
+            if time_el and (time_el.get("datetime") or time_el.get_text(strip=True)):
+                date_txt = time_el.get("datetime") or time_el.get_text(strip=True)
+                break
+            # look for generic date spans
+            dspan = parent.find(lambda tag: tag.name in ("span", "div") and "date" in " ".join(tag.get("class", [])))
+            if dspan and dspan.get_text(strip=True):
+                date_txt = dspan.get_text(strip=True)
+                break
+            parent = parent.parent
+
+        dt = _parse_date(date_txt) if date_txt else None
+        out.append((url, title, dt))
+
+    # Strategy 2: generic news item containers (fallback)
+    if not out:
+        for item in soup.select(".news__item, .article, li, .component-news-item"):
+            a = item.find("a", href=True)
+            if not a:
                 continue
+            href = a["href"]
+            if f"/news-article/{epic.upper()}/" not in href and f"/news-article/{epic.lower()}/" not in href:
+                continue
+            title = a.get_text(strip=True)
+            if not title:
+                continue
+            url = _abs_url(href)
+            dt = None
+            t = item.find("time")
+            if t and (t.get("datetime") or t.get_text(strip=True)):
+                dt = _parse_date(t.get("datetime") or t.get_text(strip=True))
+            else:
+                dspan = item.find(lambda tag: tag.name in ("span", "div") and "date" in " ".join(tag.get("class", [])))
+                if dspan:
+                    dt = _parse_date(dspan.get_text(strip=True))
+            out.append((url, title, dt))
+
+    return out
+
+
+def _fetch_detail_date(client: _Http, url: str) -> Optional[datetime]:
+    try:
+        html = client.get(url).text
+    except Exception:
         return None
+    soup = BeautifulSoup(html, "lxml")
+    # Prefer <time datetime="..."></time>
+    t = soup.find("time")
+    if t and (t.get("datetime") or t.get_text(strip=True)):
+        return _parse_date(t.get("datetime") or t.get_text(strip=True))
+    # Sometimes date appears in a meta tag
+    meta = soup.find("meta", {"property": "article:published_time"})
+    if meta and meta.get("content"):
+        return _parse_date(meta["content"])  # try ISO format
+    return None
+
+
+# ------------------------- Watcher -------------------------
+
+class RnsLseWatcher:
+    """
+    Scrapes RNS (Regulatory News Service) entries from the London Stock Exchange
+    company news pages for configured EPICs (tickers), and yields (url, title)
+    for recent results-oriented announcements.
+
+    Environment variables (wire later in CI/main):
+      - LSE_EPICS=FLTR,ENT,PPB,... (comma-separated EPICs)
+      - START_FROM_DAYS (lookback window; default 90)
+      - LSE_MAX_PAGES (pagination depth per EPIC; default 2)
+      - LSE_USER_AGENT (optional; falls back to SEC_USER_AGENT or default UA)
+      - LSE_KEYWORDS (override keywords; regex or simple words separated by '|')
+    """
+
+    def __init__(self, start_days: Optional[int] = None):
+        self.start_days = int(start_days if start_days is not None else os.getenv("START_FROM_DAYS", 90))
+        self.max_pages = int(os.getenv("LSE_MAX_PAGES", 2))
+        self.client = _Http()
+        # Compile keyword regex
+        kw_env = os.getenv("LSE_KEYWORDS", "")
+        self.keywords = re.compile(kw_env, re.I) if kw_env else DEFAULT_KEYWORDS
+
+    @staticmethod
+    def _epics() -> List[str]:
+        env = os.getenv("LSE_EPICS", "")
+        return [x.strip().upper() for x in env.split(",") if x.strip()]
+
+    @staticmethod
+    def _list_url(epic: str, page: int) -> str:
+        return f"{LSE_BASE}/stock/{epic}/company-news?page={page}"
+
+    def poll(self) -> List[Tuple[str, str]]:
+        epics = self._epics()
+        if not epics:
+            LOG.info("RnsLseWatcher: no EPICs configured (LSE_EPICS).")
+            return []
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.start_days)
+        results: List[Tuple[str, str]] = []
+
+        for epic in epics:
+            for page in range(1, self.max_pages + 1):
+                url = self._list_url(epic, page)
+                try:
+                    html = self.client.get(url).text
+                except Exception as e:
+                    LOG.warning("LSE list fetch failed for %s p%d: %s", epic, page, e)
+                    continue
+
+                items = _extract_items_from_list_html(html, epic)
+                if not items:
+                    # Stop paging if nothing found on page 1 (likely markup change or empty)
+                    if page == 1:
+                        LOG.info("LSE: no items found for %s (page 1)", epic)
+                    break
+
+                for item_url, title, dt in items:
+                    # Quick keyword screen
+                    if not self.keywords.search(title or ""):
+                        continue
+                    # Ensure we have a date; fetch detail if missing and title matched
+                    if dt is None:
+                        dt = _fetch_detail_date(self.client, item_url)
+                    if dt is not None and dt < cutoff:
+                        continue
+
+                    results.append((item_url, title))
+
+                # If the newest item on this page is already older than cutoff, stop paging
+                newest_dt = None
+                for _, _, dt in items:
+                    if dt is None:
+                        newest_dt = None
+                        break
+                    if newest_dt is None or dt > newest_dt:
+                        newest_dt = dt
+                if newest_dt is not None and newest_dt < cutoff:
+                    break
+
+        return results
