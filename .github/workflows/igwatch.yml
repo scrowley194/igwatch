@@ -1,52 +1,56 @@
 name: igwatch
-on:
-workflow_dispatch:
-schedule:
-- cron: '*/30 7-20 * * 1-5'
 
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 7-20 * * 1-5'
 
 concurrency:
-group: igwatch-${{ github.ref }}
-cancel-in-progress: true
-
+  group: igwatch-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-run:
-runs-on: ubuntu-24.04
-timeout-minutes: 20
-permissions:
-contents: read
-steps:
-- uses: actions/checkout@v4
-- uses: actions/setup-python@v5
-with:
-python-version: '3.11'
-cache: 'pip'
-- run: |
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-- name: Import path sanity check
-run: |
-python - <<'PY'
-import importlib
-for m in [
-'app.main','app.parsers.extract','app.watchers.sec_edgar',
-'app.watchers.rns_lse','app.watchers.ir_sources',
-'app.emailers.smtp_oauth','app.emailers.templates',
-'app.utils.log','app.utils.state',
-]:
-mod = importlib.import_module(m)
-print(m, '->', getattr(mod, '__file__', '?'))
-PY
-- name: Run igwatch (DRY RUN)
-env:
-ENABLE_EDGAR: 'true'
-ENABLE_LSE: 'true'
-ENABLE_IR: 'true'
-START_FROM_DAYS: '45'
-DRY_RUN: 'true' # flip to false when ready
-SEC_USER_AGENT: 'NEXT.io Earnings Watcher (contact: you@example.com)'
-IR_SOURCES_YAML: 'data/issuers.yaml'
-LSE_EPICS: 'FLTR,ENT'
-run: |
-python -m app.main
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Import path sanity check
+        run: |
+          python - <<'PY'
+          import importlib
+          for m in [
+            'app.main','app.parsers.extract','app.watchers.sec_edgar',
+            'app.watchers.rns_lse','app.watchers.ir_sources',
+            'app.emailers.smtp_oauth','app.emailers.templates',
+            'app.utils.log','app.utils.state',
+          ]:
+              mod = importlib.import_module(m)
+              print(m, '->', getattr(mod, '__file__', '?'))
+          PY
+
+      - name: Run igwatch (DRY RUN)
+        env:
+          ENABLE_EDGAR: 'true'
+          ENABLE_LSE: 'true'
+          ENABLE_IR: 'true'
+          START_FROM_DAYS: '45'
+          DRY_RUN: 'true'  # flip to 'false' when ready
+          SEC_USER_AGENT: 'NEXT.io Earnings Watcher (contact: you@example.com)'
+          IR_SOURCES_YAML: 'data/issuers.yaml'
+          LSE_EPICS: 'FLTR,ENT'
+        run: |
+          python -m app.main
