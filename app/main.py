@@ -1,6 +1,5 @@
 # app/main.py
 # Orchestrator: run enabled watchers → fetch & parse → format email → send → persist state
-# This is the LAST step, as requested. It wires together all prior building blocks.
 
 from __future__ import annotations
 import os
@@ -20,7 +19,6 @@ from .watchers.ir_sources import IrSourcesWatcher
 logger = get_logger("igwatch")
 DIV = "-" * 72
 
-# ------------------------------ Env utils ------------------------------
 
 def _truthy(name: str, default: bool = False) -> bool:
     val = os.getenv(name)
@@ -34,8 +32,6 @@ def _get_env_list(name: str) -> List[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
-# ------------------------------ Email ---------------------------------
-
 def _send_email(subject: str, body: str) -> None:
     if _truthy("DRY_RUN", False):
         logger.info("[DRY RUN] Would send email: %s\n%s", subject, body)
@@ -48,10 +44,7 @@ def _send_email(subject: str, body: str) -> None:
     smtp_oauth.send_plaintext(subject, body, mail_to, mail_from=mail_from)
 
 
-# ------------------------------ Process --------------------------------
-
 def _iter_items_from_watcher(w) -> Iterable[Tuple[str, str]]:
-    """Guarded poll that yields (url, title) pairs or nothing on error."""
     try:
         items = w.poll()
     except Exception:
@@ -101,15 +94,11 @@ def process_item(state: State, url: str, title: str) -> None:
         logger.exception("Email send failed for %s", url)
         return
 
-    # Only mark as seen after successful send (or DRY_RUN logging)
     state.add(url)
     logger.info("Sent email for %s", url)
 
 
-# ------------------------------ Main -----------------------------------
-
 def main() -> None:
-    # State file (JSON); migrate old .db once
     state_path = Path(os.getenv("STATE_FILE", "data/seen.json"))
     legacy = Path("data/seen.db")
     if legacy.exists() and not state_path.exists():
@@ -121,8 +110,6 @@ def main() -> None:
             logger.exception("Could not move legacy state %s; proceeding.", legacy)
 
     state = State(state_path)
-
-    # Build watcher list based on env toggles (all default to true)
     start_days = int(os.getenv("START_FROM_DAYS", "90"))
     watchers: List[object] = []
 
@@ -138,7 +125,6 @@ def main() -> None:
         return
 
     seen_this_run: set[str] = set()
-
     for w in watchers:
         logger.info(DIV)
         logger.info("Checking %s", w.__class__.__name__)
@@ -151,7 +137,6 @@ def main() -> None:
             except Exception:
                 logger.exception("process_item failed for %s", url)
 
-    # Persist state
     try:
         state.save()
     except Exception:
