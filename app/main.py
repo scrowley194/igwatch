@@ -218,27 +218,26 @@ def _iter_items_from_watcher(w) -> Iterable[Tuple[str, str]]:
     return safe
 
 
-def main_loop():
-    watchers = [
-        GoogleNewsWatcher(start_days=START_FROM_DAYS),
-        PressWireWatcher(start_days=START_FROM_DAYS),
-    ]
+ def main_loop():
+-    watchers = [
+-        GoogleNewsWatcher(start_days=START_FROM_DAYS),
+-        PressWireWatcher(start_days=START_FROM_DAYS),
+-    ]
++    watchers = [
++        GoogleNewsWatcher(start_days=START_FROM_DAYS),
++        PressWireWatcher(start_days=START_FROM_DAYS),
++    ]
++
++    if os.getenv("ENABLE_EDGAR", "").lower() == "true":
++        logger.info("ENABLE_EDGAR=true → adding SecEdgarWatcher")
++        watchers.append(SecEdgarWatcher(start_days=START_FROM_DAYS))
 
-    for w in watchers:
-        logger.info(DIV)
-        logger.info("Checking %s", w.__class__.__name__)
-        for url, title in _iter_items_from_watcher(w):
-            try:
-                process_item(url, title)
-            except Exception:
-                logger.exception("process_item failed for %s", url)
-
-    # Persist state without risking a crash
-    try:
-        state.save()
-    except Exception:
-        logger.exception("Failed to persist state")
-
-
-if __name__ == "__main__":
+     for w in watchers:
+         logger.info(DIV)
+         logger.info("Checking %s", w.__class__.__name__)
+         for url, title in _iter_items_from_watcher(w):
+             try:
+                 process_item(url, title)
+             except Exception:
+                 logger.exception("process_item failed for %s", url)
     main_loop()
