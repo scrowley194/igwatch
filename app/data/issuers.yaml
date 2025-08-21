@@ -1,0 +1,54 @@
+issuers:
+- name: DraftKings
+ticker: DKNG
+cik: 0001792781 # optional
+ir:
+rss: https://investors.draftkings.com/rss/news-releases.xml
+page: https://investors.draftkings.com/news-releases
+item_selector: "article a, .news a, li a"
+date_selector: "time"
+
+
+- name: Penn Entertainment
+ticker: PENN
+cik: 0000070089
+ir:
+page: https://investors.pennentertainment.com/news-releases
+item_selector: "article a, li a"
+date_selector: "time"
+
+
+- name: Caesars Entertainment
+ticker: CZR
+cik: 0001590895
+ir:
+page: https://investor.caesars.com/news-releases
+item_selector: "a"
+date_selector: "time, .date"
+
+
+- name: Rush Street Interactive
+ticker: RSI
+cik: 0001793659
+ir:
+page: https://ir.rushstreetinteractive.com/news-releases
+item_selector: "a"
+date_selector: "time"
+
+
+- name: MGM Resorts
+ticker: MGM
+cik: 0000789570
+ir:
+page: https://investors.mgmresorts.com/investors/news-releases/default.aspx
+item_selector: "a"
+date_selector: "time, .date"
+
+
+- name: Genius Sports
+ticker: GENI
+cik: 0001834480
+ir:
+page: https://investors.geniussports.com/news-releases
+item_selector: "a"
+date_selector: "time"
