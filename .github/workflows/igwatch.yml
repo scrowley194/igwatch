@@ -15,15 +15,18 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -32,12 +35,13 @@ jobs:
         run: |
           python - <<'PY'
           import importlib
-          for m in [
-            'app.main','app.parsers.extract','app.watchers.sec_edgar',
-            'app.watchers.rns_lse','app.watchers.ir_sources',
-            'app.emailers.smtp_oauth','app.emailers.templates',
-            'app.utils.log','app.utils.state',
-          ]:
+          modules = [
+              'app.main','app.parsers.extract','app.watchers.sec_edgar',
+              'app.watchers.rns_lse','app.watchers.ir_sources',
+              'app.emailers.smtp_oauth','app.emailers.templates',
+              'app.utils.log','app.utils.state',
+          ]
+          for m in modules:
               mod = importlib.import_module(m)
               print(m, '->', getattr(mod, '__file__', '?'))
           PY
