@@ -1,25 +1,81 @@
-import sqlite3, hashlib, os, threading
+# app/utils/state.py
+# Simple URL de-dup state with atomic JSON persistence.
+# You already prototyped an inline version in main; this makes it reusable.
+
+from __future__ import annotations
+import json
+import logging
+import tempfile
+from pathlib import Path
+from typing import Set
+
+LOG = logging.getLogger("igwatch")
+
 
 class State:
-    def __init__(self, db_path: str = "data/seen.db"):
-        self.db_path = db_path
-        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
-        self._lock = threading.Lock()
-        self._init_db()
+    """Atomic JSON-backed set for seen URLs (or arbitrary strings).
 
-    def _init_db(self):
-        with sqlite3.connect(self.db_path) as con:
-            con.execute("CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY, ts INTEGER)")
+    File format: JSON array of strings (sorted on write). Backward-compatible with
+    newline-delimited text: each non-empty line is treated as one entry.
+    If the file isn't valid UTF-8 (legacy SQLite or binary), it will be moved aside
+    with a .bak suffix and we start fresh.
+    """
 
-    def make_id(self, source: str, url: str, title: str) -> str:
-        raw = f"{source}|{url}|{title}".encode("utf-8", "ignore")
-        return hashlib.sha256(raw).hexdigest()
+    def __init__(self, path: str | Path):
+        self._path = Path(path)
+        self._seen: Set[str] = set()
+        self._load()
 
-    def is_seen(self, item_id: str) -> bool:
-        with self._lock, sqlite3.connect(self.db_path) as con:
-            cur = con.execute("SELECT 1 FROM seen WHERE id=?", (item_id,))
-            return cur.fetchone() is not None
+    def has(self, key: str) -> bool:
+        return key in self._seen
 
-    def mark_seen(self, item_id: str, ts: int):
-        with self._lock, sqlite3.connect(self.db_path) as con:
-            con.execute("INSERT OR IGNORE INTO seen (id, ts) VALUES (?, ?)", (item_id, ts))
+    def add(self, key: str) -> None:
+        self._seen.add(key)
+
+    def save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        data = json.dumps(sorted(self._seen), ensure_ascii=False)
+        with tempfile.NamedTemporaryFile("w", dir=str(self._path.parent), delete=False) as tmp:
+            tmp.write(data + "\n")
+            tmp_path = Path(tmp.name)
+        tmp_path.replace(self._path)
+
+    # ----------------------- internal -----------------------
+
+    def _load(self) -> None:
+        try:
+            if not self._path.exists():
+                return
+            raw_bytes = self._path.read_bytes()
+            if not raw_bytes:
+                return
+            try:
+                raw = raw_bytes.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                bak = self._path.with_suffix(self._path.suffix + ".bak")
+                try:
+                    self._path.replace(bak)
+                    LOG.error("State file %s is not UTF-8 text; moved to %s and starting fresh.", self._path, bak)
+                except Exception:
+                    LOG.exception("Failed to back up non-UTF8 state file %s; starting fresh without backup.", self._path)
+                self._seen = set()
+                return
+
+            if not raw:
+                return
+            if raw[0] in "[{}":
+                # JSON array or {"seen": [...]} fallback
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    self._seen = set(map(str, data))
+                elif isinstance(data, dict) and "seen" in data and isinstance(data["seen"], list):
+                    self._seen = set(map(str, data["seen"]))
+                else:
+                    LOG.warning("Unexpected JSON structure in %s; starting fresh.", self._path)
+                    self._seen = set()
+            else:
+                # Backward compat: newline-delimited
+                self._seen = set(x for x in raw.splitlines() if x.strip())
+        except Exception:
+            LOG.exception("Failed to load state from %s; starting fresh.", self._path)
+            self._seen = set()
